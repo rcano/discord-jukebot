@@ -35,9 +35,11 @@ object LazyTrack {
         redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
         start()
       new Thread() {
-        override def run = {
+        override def run = try {
           scala.sys.process.BasicIO.transferFully(new ByteArrayInputStream(bytes), process.getOutputStream)
           process.getOutputStream.close()
+        } catch {
+          case e: IOException if e.getMessage == "Broken pipe" =>
         }
       }.start()
       val inputStream = new BufferedInputStream(process.getInputStream, 1024 * 10) {  //need some buffer in order to be able to reset, which AudioSystem will attempt
