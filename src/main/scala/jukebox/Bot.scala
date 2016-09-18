@@ -39,6 +39,156 @@ object Bot extends App {
        */
       var processingPlaylist: Option[(IUser, SyncVar[Unit])] = None
 
+      val commands = collection.mutable.ListBuffer[Command]()
+      case class Command(name: String, description: String)(val action: (IMessage, AudioPlayer) => String PartialFunction Any)
+
+      commands += Command("status", "shows what I'm currently playing and pending.")((msg, ap) => {
+          case "status" =>
+            msg.reply(
+              if (ap.getCurrentTrack == null) "Nothing is being played."
+              else {
+                val metadata = ap.getCurrentTrack.getMetadata
+                val title = metadata.get("title")
+                val duration = {
+                  val d = metadata.get("duration").asInstanceOf[Int]
+                  (d / 60, d % 60)
+                }
+                val origin = metadata.get("origin")
+                s"Currently playing ${title} - ${duration._1}:${duration._2}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
+              }
+            )
+        })
+
+      commands += Command("list", "shows the remaining list of songs to be played.")((msg, ap) => {
+          case "list" =>
+            if (ap.getPlaylistSize == 0) {
+              msg.reply("Nothing in the queue" )
+            } else {
+              val Seq(head, tail@_*) = ap.getPlaylist.asScala.zipWithIndex.map(e => e._2 + ": " + e._1.getMetadata.get("title")).grouped(20).toVector
+              msg.reply("Playlist:\n" + head.mkString("\n"))
+              for (s <- tail) {
+                Thread.sleep(200)
+                msg.reply(s.mkString("\n"))
+              }
+            }
+        })
+
+      commands += Command("pause/stop", "pause the currently playing song")((msg, ap) => {
+          case "pause" | "stop" =>
+            ap.setPaused(true)
+            msg.reply("_paused_")
+        })
+      commands += Command("unpause/resume/play", "resumes playing the song")((msg, ap) => {
+          case "unpause" | "resume" | "play" =>
+            ap.setPaused(false)
+            msg.reply("_unpaused_")
+        })
+
+      commands += Command("skip", "skips this song")((msg, ap) => {
+          case "skip" =>
+            ap.skip()
+            val song = ap.getCurrentTrack.getMetadata.get("title")
+            msg.reply("_skipped to $song_")
+        })
+      commands += Command("skip to <index>", "skips to the specified song")((msg, ap) => {
+          case regex"skip to (.+)$where" => where match {
+              case regex"""(\d+)$num""" =>
+                if (ap.getPlaylistSize == 0) msg.reply("There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
+                else {
+                  val playlist = ap.getPlaylist
+                  val dest = math.min(num.toInt, playlist.size - 1)
+                  val song = playlist.get(dest)
+                  //skip manually so as to avoid ap.skipTo logic of calling ready on the InputProvider (wihch in turn causes our logic to fetch the video)
+                  for (_ <- 0 until dest) {
+                    val track = playlist.remove(0)
+                    val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                    Try(p.close())
+                    discordClient.getDispatcher.dispatch(new TrackSkipEvent(ap, track))
+                  }
+                  msg.reply("_skipping to " + song.getMetadata.get("title") + "_")
+                }
+              case other => msg.reply("skip to command only accepts a number")
+            }
+        })
+
+
+      commands += Command("add <url>", "Addes the given song to the queue.")((msg, ap) => {
+          case regex"add (.+)$url" => url match {
+              case regex"(https?://www.youtube.com.+)$url" =>
+                processingPlaylist.fold {
+
+                  msg.reply("_adding " + url + "_")
+                  YoutubeProvider.fetchInformation(url, i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
+                  map {
+                    case (1, _, res) =>
+                      ap.queue(LazyTrack(res.value.get.get.head))
+                      msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
+                    case (num, cancel, playlistF) =>
+                      processingPlaylist = Some((msg.getAuthor, cancel))
+                      msg.reply(s"_processing $num videos in the playlist._")
+                      playlistF.onComplete { res =>
+                        processingPlaylist = None
+                        res match {
+                          case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
+                            playlist foreach (s => ap.queue(LazyTrack(s)))
+                          case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
+                          case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
+                        }
+                      }(mainThreadExecutionContext)
+                  }.failed.foreach(_.printStackTrace(Console.err))
+
+                }{ case (owner, _) => msg.reply(s"Sorry, I'm still processing a playlist on ${owner.mention} 's behalf. Please try again later.")}
+
+
+              case other => msg.reply("for now I only support youtube links. Sorry.")
+            }
+        })
+      commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")((msg, ap) => {
+          case regex"remove (.+)$what" => what match {
+              case regex"""(\d+)$n""" =>
+                val num = n.toInt
+                if (num < 0) msg.reply("A negative number? :sweat:")
+                else if (ap.getPlaylistSize == 0) msg.reply("The playlist is empty.")
+                else if (num >= ap.getPlaylistSize) msg.reply(s"$num is larger than the playlist's size, you meant to remove the last one? it's ${ap.getPlaylistSize - 1}")
+                else if (num == 0) ap.skip()
+                else {
+                  val track = ap.getPlaylist.remove(num)
+                  val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                  Try(p.close())
+                  val title = track.getMetadata.get("title")
+                  msg.reply(s"_ removed ${title}_")
+                }
+
+              case other =>
+                ap.getPlaylist.asScala.zipWithIndex.find(_._1.getMetadata.get("title") == other) match {
+                  case Some((track, idx)) =>
+                    ap.getPlaylist.remove(idx)
+                    val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                    Try(p.close())
+                    val title = track.getMetadata.get("title")
+                    msg.reply(s"_ removed ${title}_")
+                  case _ => msg.reply(s"Sorry, there is no song named `$other`")
+                }
+            }
+        })
+
+      commands += Command("cancel", "Makes me cancel the processing of a playlist that someone requested.")((msg, ap) => {
+          case "cancel" if processingPlaylist.isEmpty => msg.reply("I'm not processing anything, so there is nothing to cancel.")
+          case "cancel" =>
+            val (user, c) = processingPlaylist.get
+            c.put(())
+            msg.getChannel.sendMessage(s"Cancelling ${user.mention} 's work as per ${msg.getAuthor.mention} 's request.")
+        })
+
+      commands += Command("help", "Prints this message")((msg, ap) => {
+          case "help" =>
+            val maxCmdWidth = commands.map(_.name.length).max
+            val helpString = new StringBuilder
+            commands foreach (c => helpString.append(c.name.padTo(maxCmdWidth, ' ')).append(" - ").append(c.description).append("\n"))
+            msg.reply("```\n" + helpString.toString + "```")
+        })
+
+
       def handle(e) = Future { //process all events in the main thread, so that no regard to memory cohesion has to be paid
         try {
 
@@ -63,90 +213,12 @@ object Bot extends App {
             case msgEvt: MessageReceivedEvent if msgEvt.getMessage.getContent startsWith me =>
               val msg = msgEvt.getMessage
               val ap = AudioPlayer.getAudioPlayerForGuild(msg.getChannel.getGuild)
-              msg.getContent.stripPrefix(me + " ") match {
-                case "list" =>
-                  if (ap.getPlaylistSize == 0) {
-                    msg.reply("Nothing in the queue" )
-                  } else {
-                    val Seq(head, tail@_*) = ap.getPlaylist.asScala.zipWithIndex.map(e => e._2 + ": " + e._1.getMetadata.get("title")).grouped(20).toVector
-                    msg.reply("Playlist:\n" + head.mkString("\n"))
-                    for (s <- tail) {
-                      Thread.sleep(200)
-                      msg.reply(s.mkString("\n"))
-                    }
 
-                  }
+              val cmd = msg.getContent.stripPrefix(me + " ")
+              commands.find(_.action(msg, ap).isDefinedAt(cmd)) match {
+                case Some(command) => command.action(msg, ap)(cmd)
+                case _ => msg.reply(s"Sorry, I don't know the command: $cmd")
 
-                case "status" =>
-                  msg.reply(
-                    if (ap.getCurrentTrack == null) "Nothing is being played."
-                    else s"Currently playing ${ap.getCurrentTrack.getMetadata.get("title")}. ${ap.getPlaylistSize - 1} remaining tracks."
-                  )
-
-                case "pause" =>
-                  ap.setPaused(true)
-                  msg.reply("_paused_")
-                case "unpause" =>
-                  ap.setPaused(false)
-                  msg.reply("_unpaused_")
-
-                case regex"skip to (.+)$where" => where match {
-                    case regex"""(\d+)$num""" =>
-                      if (ap.getPlaylistSize == 0) msg.reply("There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
-                      else {
-                        val playlist = ap.getPlaylist
-                        val dest = math.min(num.toInt, playlist.size - 1)
-                        val song = playlist.get(dest)
-                        //skip manually so as to avoid ap.skipTo logic of calling ready on the InputProvider (wihch in turn causes our logic to fetch the video)
-                        for (_ <- 0 until dest) {
-                          val track = playlist.remove(0)
-                          val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
-                          Try(p.close())
-                          discordClient.getDispatcher.dispatch(new TrackSkipEvent(ap, track))
-                        }
-                        msg.reply("_skipping to " + song.getMetadata.get("title") + "_")
-                      }
-                    case other => msg.reply("skip to command only accepts a number")
-                  }
-
-
-                case regex"add (.+)$url" => url match {
-                    case regex"(https?://www.youtube.com.+)$url" =>
-                      processingPlaylist.fold {
-                      
-                        msg.reply("_adding " + url + "_")
-                        YoutubeProvider.fetchInformation(url, i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
-                        map {
-                          case (1, _, res) =>
-                            ap.queue(LazyTrack(res.value.get.get.head))
-                            msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
-                          case (num, cancel, playlistF) =>
-                            processingPlaylist = Some((msg.getAuthor, cancel))
-                            msg.reply(s"_processing $num videos in the playlist._")
-                            playlistF.onComplete { res =>
-                              processingPlaylist = None
-                              res match {
-                                case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
-                                  playlist foreach (s => ap.queue(LazyTrack(s)))
-                                case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
-                                case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
-                              }
-                            }(mainThreadExecutionContext)
-                        }.failed.foreach(_.printStackTrace(Console.err))
-                      
-                      }{ case (owner, _) => msg.reply(s"Sorry, I'm still processing a playlist on ${owner.mention} 's behalf. Please try again later.")}
-
-
-                    case other => msg.reply("for now I only support youtube links. Sorry.")
-                  }
-
-                case "cancel" if processingPlaylist.isEmpty => msg.reply("I'm not processing anything, so there is nothing to cancel.")
-                case "cancel" =>
-                  val (user, c) = processingPlaylist.get
-                  c.put(())
-                  msg.getChannel.sendMessage(s"Cancelling ${user.mention} 's work as per ${msg.getAuthor.mention} 's request.")
-                
-                case other => msg.reply(s"Sorry, I don't know the command: $other")
               }
 
 
