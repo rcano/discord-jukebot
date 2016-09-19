@@ -7,6 +7,8 @@ import javax.sound.sampled.AudioSystem
 
 import scala.Console
 
+import scala.util.{Failure, Try}
+
 import sx.blah.discord.handle.audio.IAudioProvider
 import sx.blah.discord.util.audio.AudioPlayer
 import sx.blah.discord.util.audio.providers.AudioInputStreamProvider
@@ -15,25 +17,29 @@ import sx.blah.discord.util.audio.providers.AudioInputStreamProvider
  * AudioPlayer.Track implementation that is lazy with its input stream creation, allowing to save up memory.
  */
 object LazyTrack {
-  class LazyAudioProvider(val audioInputStream: () => AudioInputStream) extends IAudioProvider {
+  class LazyAudioProvider(val audioInputStream: () => AudioInputStream, downloadErrorReporter: Throwable => Unit) extends IAudioProvider {
     @volatile var _audioInputStream: AudioInputStream = _
-    lazy val _provider = {
+    lazy val _provider = Try {
       _audioInputStream = audioInputStream()
       val r = new AudioInputStreamProvider(_audioInputStream)
       r
+    }.recoverWith {
+      case e =>
+        downloadErrorReporter(e)
+        Failure(e)
     }
-    def isReady = _provider.isReady
-    def provide = _provider.provide
+    def isReady = _provider.map(_.isReady).getOrElse(true)
+    def provide = _provider.map(_.provide).getOrElse(new Array[Byte](0))
     def close() = if (_audioInputStream != null) _audioInputStream.close()
   }
-  def apply(song: SongMetadata): AudioPlayer.Track = {
+  def apply(song: SongMetadata, downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
     lazy val inputStream = {
       println(Console.CYAN + "Getting song ready " + song + Console.RESET)
       val bytes = YoutubeProvider.download(song).get
 
       val process = new ProcessBuilder("ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
-        redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
-        start()
+      redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
+      start()
       new Thread() {
         override def run = try {
           scala.sys.process.BasicIO.transferFully(new ByteArrayInputStream(bytes), process.getOutputStream)
@@ -50,7 +56,7 @@ object LazyTrack {
       }
       AudioSystem getAudioInputStream inputStream
     }
-    val inputProvider = new LazyAudioProvider(() => inputStream)
+    val inputProvider = new LazyAudioProvider(() => inputStream, downloadErrorReporter)
     val res = new AudioPlayer.Track(inputProvider)
     res.getMetadata.put("title", song.name)
     res.getMetadata.put("duration", song.length: java.lang.Integer)
