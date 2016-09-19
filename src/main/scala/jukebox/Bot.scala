@@ -49,12 +49,9 @@ object Bot extends App {
               else {
                 val metadata = ap.getCurrentTrack.getMetadata
                 val title = metadata.get("title")
-                val duration = {
-                  val d = metadata.get("duration").asInstanceOf[Int]
-                  (d / 60, d % 60)
-                }
+                val duration = metadata.get("duration").asInstanceOf[Int]
                 val origin = metadata.get("origin")
-                s"Currently playing ${title} - ${duration._1}:${duration._2}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
+                s"Currently playing ${title} - ${secondsToString(duration)}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
               }
             )
         })
@@ -65,7 +62,8 @@ object Bot extends App {
               msg.reply("Nothing in the queue" )
             } else {
               val Seq(head, tail@_*) = ap.getPlaylist.asScala.zipWithIndex.map(e => e._2 + ": " + e._1.getMetadata.get("title")).grouped(20).toVector
-              msg.reply("Playlist:\n" + head.mkString("\n"))
+              val totalTime = ap.getPlaylist.asScala.map(_.getTotalTrackTime / 1000).sum.toInt
+              msg.reply(s"Playlist total time ${secondsToString(totalTime)}:\n" + head.mkString("\n"))
               for (s <- tail) {
                 Thread.sleep(200)
                 msg.reply(s.mkString("\n"))
@@ -88,7 +86,7 @@ object Bot extends App {
           case "skip" =>
             ap.skip()
             val song = ap.getCurrentTrack.getMetadata.get("title")
-            msg.reply("_skipped to $song_")
+            msg.reply(s"_skipped to ${song}_")
         })
       commands += Command("skip to <index>", "skips to the specified song")((msg, ap) => {
           case regex"skip to (.+)$where" => where match {
@@ -118,10 +116,15 @@ object Bot extends App {
                 processingPlaylist.fold {
 
                   msg.reply("_adding " + url + "_")
+                  val errorReporter: SongMetadata => Throwable => Unit = song => t => {
+                    msg.reply(s"There was an error when downloading ${song.name}: $t")
+                    commands.find(_.name == "skip").foreach(_.action(msg, ap).apply("skip")) //invoke skip
+                  }
                   YoutubeProvider.fetchInformation(url, i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
                   map {
                     case (1, _, res) =>
-                      ap.queue(LazyTrack(res.value.get.get.head))
+                      val song = res.value.get.get.head
+                      ap.queue(LazyTrack(song, errorReporter(song)))
                       msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
                     case (num, cancel, playlistF) =>
                       processingPlaylist = Some((msg.getAuthor, cancel))
@@ -130,7 +133,7 @@ object Bot extends App {
                         processingPlaylist = None
                         res match {
                           case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
-                            playlist foreach (s => ap.queue(LazyTrack(s)))
+                            playlist foreach (s => ap.queue(LazyTrack(s, errorReporter(s))))
                           case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
                           case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
                         }
@@ -246,7 +249,10 @@ object Bot extends App {
       }(mainThreadExecutionContext)
     })
 
-
+  def secondsToString(seconds: Int) = {
+    val hours = if (seconds >= 3600) (seconds / 3600) + ":" else ""
+    f"${hours}${(seconds % 3600) / 60}%02d:${seconds % 60}%02d"
+  }
   /**
    * make an execution context out of the main thread.
    */
