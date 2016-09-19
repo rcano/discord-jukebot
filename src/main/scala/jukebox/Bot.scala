@@ -62,8 +62,8 @@ object Bot extends App {
               msg.reply("Nothing in the queue" )
             } else {
               val Seq(head, tail@_*) = ap.getPlaylist.asScala.zipWithIndex.map(e => e._2 + ": " + e._1.getMetadata.get("title")).grouped(20).toVector
-              val totalTime = ap.getPlaylist.asScala.map(_.getTotalTrackTime / 1000).sum.toInt
-              msg.reply(s"Playlist total time ${secondsToString(totalTime)}:\n" + head.mkString("\n"))
+              val totalTime = ap.getPlaylist.asScala.map(_.getMetadata.get("duration").asInstanceOf[Int]).sum
+              msg.reply(s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
               for (s <- tail) {
                 Thread.sleep(200)
                 msg.reply(s.mkString("\n"))
@@ -146,6 +146,30 @@ object Bot extends App {
               case other => msg.reply("for now I only support youtube links. Sorry.")
             }
         })
+
+
+      commands += Command("remove range", "Removes all the song between the two specified indeces")((msg, ap) => {
+          case regex"""remove range (\d+)$n1 (\d+)$n2""" =>
+            val from = n1.toInt
+            val to = n2.toInt
+            if (from > to) msg.reply(s"$from is greater than $to ... :sweat:")
+            else if (to > ap.getPlaylistSize) msg.reply(s"Please remove songs with indices **within** the list (the maximum upper bound is currently ${ap.getPlaylistSize}).")
+            else {
+              val removedTracks = for (i <- from until to) yield {
+                val track = ap.getPlaylist.remove(from) //removing from is on purpose
+                val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                Try(p.close())
+                val title = track.getMetadata.get("title")
+                title
+              }
+              removedTracks.grouped(20) foreach { tracks =>
+                msg.reply("_removed:\n" + tracks.mkString("\n"))
+                Thread.sleep(200)
+              }
+            }
+
+          case regex"""remove range .*""" => msg.reply("I'm sorry, remove range only accepts a pair of naturals")
+        })
       commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")((msg, ap) => {
           case regex"remove (.+)$what" => what match {
               case regex"""(\d+)$n""" =>
@@ -181,6 +205,18 @@ object Bot extends App {
             val (user, c) = processingPlaylist.get
             c.put(())
             msg.getChannel.sendMessage(s"Cancelling ${user.mention} 's work as per ${msg.getAuthor.mention} 's request.")
+        })
+
+
+      commands += Command("join", s"Makes me join the voice channel ${clargs.channel}")((msg, ap) => {
+          case "join" => discordClient.getGuilds.asScala.flatMap(_.getVoiceChannelsByName(clargs.channel).asScala.headOption) foreach { channel =>
+              channel.join()
+            }
+        })
+      commands += Command("leave", s"Makes me leave the voice channel ${clargs.channel}")((msg, ap) => {
+          case "leave" => discordClient.getGuilds.asScala.flatMap(_.getVoiceChannelsByName(clargs.channel).asScala.headOption) foreach { channel =>
+              channel.leave()
+            }
         })
 
       commands += Command("help", "Prints this message")((msg, ap) => {
