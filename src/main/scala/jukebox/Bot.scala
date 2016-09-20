@@ -120,7 +120,9 @@ object Bot extends App {
                     msg.reply(s"There was an error when downloading ${song.name}: $t")
                     commands.find(_.name == "skip").foreach(_.action(msg, ap).apply("skip")) //invoke skip
                   }
-                  YoutubeProvider.fetchInformation(url, i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
+                  YoutubeProvider.fetchInformation(url,
+                                                   error => msg.reply("_" + error + "_"),
+                                                   i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
                   map {
                     case (1, _, res) =>
                       val song = res.value.get.get.head
