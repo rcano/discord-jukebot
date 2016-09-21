@@ -1,12 +1,10 @@
 package jukebox
 
 import java.io._
-
 import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 
 import scala.Console
-
 import scala.util.{Failure, Try}
 
 import sx.blah.discord.handle.audio.IAudioProvider
