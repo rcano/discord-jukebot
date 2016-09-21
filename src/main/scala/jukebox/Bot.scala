@@ -130,6 +130,8 @@ object Bot extends App {
                       val song = res.value.get.get.head
                       ap.queue(LazyTrack(song, errorReporter(song)))
                       msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
+
+                      ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
                     case (num, cancel, playlistF) =>
                       processingPlaylist = Some((msg.getAuthor, cancel))
                       msg.reply(s"_processing $num videos in the playlist._")
@@ -138,6 +140,7 @@ object Bot extends App {
                         res match {
                           case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
                             playlist foreach (s => ap.queue(LazyTrack(s, errorReporter(s))))
+                            ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                           case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
                           case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
                         }
@@ -170,6 +173,7 @@ object Bot extends App {
                 msg.reply("_removed:\n" + tracks.mkString("\n"))
                 Thread.sleep(200)
               }
+              ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
             }
 
           case regex"""remove range .*""" => msg.reply("I'm sorry, remove range only accepts a pair of naturals")
@@ -188,6 +192,7 @@ object Bot extends App {
                   Try(p.close())
                   val title = track.getMetadata.get("title")
                   msg.reply(s"_ removed ${title}_")
+                  ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                 }
 
               case other =>
@@ -198,6 +203,7 @@ object Bot extends App {
                     Try(p.close())
                     val title = track.getMetadata.get("title")
                     msg.reply(s"_ removed ${title}_")
+                    ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                   case _ => msg.reply(s"Sorry, there is no song named `$other`")
                 }
             }
@@ -271,14 +277,7 @@ object Bot extends App {
             case e: TrackStartEvent =>
               println("track started")
               //when a track finishes playing, start caching the one after the current.
-              e.getPlayer.getPlaylist.asScala.drop(1).headOption.foreach { track =>
-                new Thread() {
-                  override def run() = {
-                    println("Precaching next track: " + track.getMetadata.get("title"))
-                    track.isReady() //this causes the lazy stream to be fetch
-                  }
-                }.start()
-              }
+              ensureNextTrackIsCached(e.getPlayer)
             
 
             case _ =>
@@ -287,6 +286,17 @@ object Bot extends App {
           case e: Exception => e.printStackTrace(Console.err)
         }
       }(mainThreadExecutionContext)
+
+      def ensureNextTrackIsCached(ap: AudioPlayer) = {
+        ap.getPlaylist.asScala.drop(1).headOption.foreach { track =>
+          new Thread() {
+            override def run() = {
+              println("Precaching next track: " + track.getMetadata.get("title"))
+              track.isReady() //this causes the lazy stream to be fetch
+            }
+          }.start()
+        }
+      }
     })
 
   def secondsToString(seconds: Int) = {
