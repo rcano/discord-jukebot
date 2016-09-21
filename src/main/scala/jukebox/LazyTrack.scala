@@ -37,7 +37,7 @@ object LazyTrack {
       println(Console.CYAN + "Getting song ready " + song + Console.RESET)
       val bytes = YoutubeProvider.download(song).get
 
-      val process = new ProcessBuilder("ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
+      val process = new ProcessBuilder("avconv -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
       redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
       start()
       new Thread() {
