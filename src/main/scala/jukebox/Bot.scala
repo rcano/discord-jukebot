@@ -85,8 +85,10 @@ object Bot extends App {
       commands += Command("skip", "skips this song")((msg, ap) => {
           case "skip" =>
             ap.skip()
-            val song = ap.getCurrentTrack.getMetadata.get("title")
-            msg.reply(s"_skipped to ${song}_")
+            ap.getCurrentTrack match {
+              case null => msg.reply("_end of playlist_")
+              case song => msg.reply(s"_skipped to ${song}_")
+            }
         })
       commands += Command("skip to <index>", "skips to the specified song")((msg, ap) => {
           case regex"skip to (.+)$where" => where match {
