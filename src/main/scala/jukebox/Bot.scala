@@ -16,10 +16,11 @@ import RegexExtractor._
 
 object Bot extends App {
 
-  case class Clargs(discordToken: String = null, channel: String = null)
+  case class Clargs(discordToken: String = null, channel: String = null, encoder: String = null)
   val clargs = new scopt.OptionParser[Clargs]("discord-jukebox") {
     opt[String]('t', "token").action((x, c) => c.copy(discordToken = x)).required.text("discord bot token")
     opt[String]('c', "channel").action((x, c) => c.copy(channel = x)).required.text("discord voice channel")
+    opt[String]("encoding-tool").action((x, c) => c.copy(encoder = x)).required.text("path to binary that will perform encoding (e.g.: ffmpeg or avconv)")
   }.parse(args, new Clargs()).getOrElse(sys.exit(0))
 
   val discordClient = new DiscordClientBuilder().withToken(clargs.discordToken).login()
@@ -128,7 +129,7 @@ object Bot extends App {
                   map {
                     case (1, _, res) =>
                       val song = res.value.get.get.head
-                      ap.queue(LazyTrack(song, errorReporter(song)))
+                      ap.queue(LazyTrack(clargs.encoder, song, errorReporter(song)))
                       msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
 
                       ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
@@ -139,7 +140,7 @@ object Bot extends App {
                         processingPlaylist = None
                         res match {
                           case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
-                            playlist foreach (s => ap.queue(LazyTrack(s, errorReporter(s))))
+                            playlist foreach (s => ap.queue(LazyTrack(clargs.encoder, s, errorReporter(s))))
                             ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                           case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
                           case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")

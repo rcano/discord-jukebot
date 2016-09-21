@@ -30,12 +30,12 @@ object LazyTrack {
     def provide = _provider.map(_.provide).getOrElse(new Array[Byte](0))
     def close() = if (_audioInputStream != null) _audioInputStream.close()
   }
-  def apply(song: SongMetadata, downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
+  def apply(encoder: String, song: SongMetadata, downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
     lazy val inputStream = {
       println(Console.CYAN + "Getting song ready " + song + Console.RESET)
       val bytes = YoutubeProvider.download(song).get
 
-      val process = new ProcessBuilder("ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
+      val process = new ProcessBuilder(s"$encoder -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
       redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
       start()
       new Thread() {
