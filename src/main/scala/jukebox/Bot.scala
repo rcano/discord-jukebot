@@ -255,7 +255,7 @@ object Bot extends App {
               val msg = msgEvt.getMessage
               val ap = AudioPlayer.getAudioPlayerForGuild(msg.getChannel.getGuild)
 
-              val cmd = msg.getContent.stripPrefix(me + " ")
+              val cmd = msg.getContent.stripPrefix(me).stripPrefix(",").stripPrefix(":").stripPrefix(" ")
               commands.find(_.action(msg, ap).isDefinedAt(cmd)) match {
                 case Some(command) => command.action(msg, ap)(cmd)
                 case _ => msg.reply(s"Sorry, I don't know the command: $cmd")
