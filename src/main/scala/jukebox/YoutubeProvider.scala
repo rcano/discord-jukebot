@@ -23,7 +23,7 @@ object YoutubeProvider {
    * @param progessReporter If the url is a playlist, it will take time to process, this function will be called with the counter of processed videos.
    * @return A try instance of tuple, the int part represents the amount of videos that are bieng processed, the Future holds the result.
    */
-  def fetchInformation(url: String, progressReporter: Int => Unit): Try[(Int, SyncVar[Unit], Future[Seq[SongMetadata]])] = Try {
+  def fetchInformation(url: String, errorReporter: String => Unit, progressReporter: Int => Unit): Try[(Int, SyncVar[Unit], Future[Seq[SongMetadata]])] = Try {
     implicit val commandExecutor = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(10))
     runCommand("youtube-dl -q -j --flat-playlist --".split(" ").toSeq :+ url) match {
       case (Seq(), errorLog) => throw new Exception(errorLog.mkString("\n"))
@@ -43,15 +43,16 @@ object YoutubeProvider {
 
               runCommand("youtube-dl -q -j --flat-playlist --".split(" ").toSeq :+ u) match {
                 case (Seq(), errorLog) =>
-                  cancel.put(()) //reject the rest of the tasks since we already failed
-                  throw new Exception(errorLog.mkString("\n"))
+                  errorReporter(s"Failed processing $u\n" + errorLog.mkString)
+                  None
                 case (Seq(line), _) => 
                   progressReporter(alreadyCompleted.incrementAndGet)
-                  idx -> extractSongMetadata(parseJson(line))
+                  Some(idx -> extractSongMetadata(parseJson(line)))
               }
-            }}
+            }
+        }
 
-        val process = Future.sequence(urlsBeingProcessed).map(_.sortBy(_._1).map(_._2)).andThen { case _ => commandExecutor.shutdown() }
+        val process = Future.sequence(urlsBeingProcessed).map(_.flatten.sortBy(_._1).map(_._2)).andThen { case _ => commandExecutor.shutdown() }
         (playlist.size,cancel, process)
     }
   }
