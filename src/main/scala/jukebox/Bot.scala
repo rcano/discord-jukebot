@@ -83,7 +83,7 @@ object Bot extends App {
           case "unpause" | "resume" | "play" =>
             ap.setPaused(false)
             msg.reply("_unpaused_")
-            showCurrentlyPlaying(ap
+            showCurrentlyPlaying(ap)
         })
 
       commands += Command("shuffle", "shuffles the playlist")((msg, ap) => {

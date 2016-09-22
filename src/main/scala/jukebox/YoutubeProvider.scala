@@ -86,3 +86,8 @@ object YoutubeProvider {
 }
 
 case class SongMetadata(name: String, length: Int, origin: String)
+object SongMetadata {
+  def fromMetadata(m: java.util.Map[String, Object]) = SongMetadata(m.get("title").asInstanceOf[String],
+                                                                    m.get("duration").asInstanceOf[Int],
+                                                                    m.get("origin").asInstanceOf[String])
+}
