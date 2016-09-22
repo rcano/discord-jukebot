@@ -8,9 +8,9 @@ import scala.util.Try
 
 import sx.blah.discord.api.{ClientBuilder => DiscordClientBuilder, events}, events.{Event, IListener}
 import sx.blah.discord.handle.impl.events.{DiscordReconnectedEvent, MessageReceivedEvent, ReadyEvent}
-import sx.blah.discord.handle.obj.{IGuild, IMessage, IUser}
+import sx.blah.discord.handle.obj.{IGuild, IMessage, IUser, Status}
 import sx.blah.discord.util.audio.AudioPlayer
-import sx.blah.discord.util.audio.events.{TrackStartEvent, TrackSkipEvent, ShuffleEvent}
+import sx.blah.discord.util.audio.events.{TrackStartEvent, TrackSkipEvent, ShuffleEvent, TrackFinishEvent}
 
 import RegexExtractor._
 
@@ -52,23 +52,24 @@ object Bot extends App {
                 val title = metadata.get("title")
                 val duration = metadata.get("duration").asInstanceOf[Int]
                 val origin = metadata.get("origin")
-                s"Currently playing ${title} - ${secondsToString(duration)}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
+                val transcurred = (ap.getCurrentTrack.getCurrentTrackTime / 1000).toInt
+                s"Currently playing ${title} - ${secondsToString(transcurred)}/${secondsToString(duration)}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
               }
             )
         })
 
-      commands += Command("list", "shows the remaining list of songs to be played.")((msg, ap) => {
-          case "list" =>
-            if (ap.getPlaylistSize == 0) {
-              msg.reply("Nothing in the queue" )
-            } else {
-              val Seq(head, tail@_*) = ap.getPlaylist.asScala.zipWithIndex.map(e => e._2 + ": " + e._1.getMetadata.get("title")).grouped(20).toVector
-              val totalTime = ap.getPlaylist.asScala.map(_.getMetadata.get("duration").asInstanceOf[Int]).sum
-              msg.reply(s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
-              for (s <- tail) {
-                Thread.sleep(200)
-                msg.reply(s.mkString("\n"))
-              }
+      commands += Command("list[ full]", "shows the remaining list of songs to be played.")((msg, ap) => {
+          case "list" | "list full" if ap.getPlaylistSize == 0 => msg.reply("Nothing in the queue" )
+          case cmd@ ("list" | "list full") =>
+            val full = cmd.endsWith("full")
+            val songs = ap.getPlaylist.asScala map (t => SongMetadata.fromMetadata(t.getMetadata))
+            val Seq(head, tail@_*) = songs.zipWithIndex.map(e => e._2 + ": " + e._1.name +
+                                                            (if (full) " - " + e._1.origin else "")).grouped(20).toVector
+            val totalTime = songs.map(_.length).sum
+            msg.reply(s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
+            for (s <- tail) {
+              Thread.sleep(200)
+              msg.reply(s.mkString("\n"))
             }
         })
 
@@ -76,11 +77,13 @@ object Bot extends App {
           case "pause" | "stop" =>
             ap.setPaused(true)
             msg.reply("_paused_")
+            discordClient changeStatus Status.game("paused")
         })
       commands += Command("unpause/resume/play", "resumes playing the song")((msg, ap) => {
           case "unpause" | "resume" | "play" =>
             ap.setPaused(false)
             msg.reply("_unpaused_")
+            showCurrentlyPlaying(ap
         })
 
       commands += Command("shuffle", "shuffles the playlist")((msg, ap) => {
@@ -296,6 +299,10 @@ object Bot extends App {
               println("track started")
               //when a track finishes playing, start caching the one after the current.
               ensureNextTrackIsCached(e.getPlayer)
+              showCurrentlyPlaying(e.getPlayer)
+              
+              
+            case e: TrackFinishEvent => discordClient changeStatus Status.empty
             
 
             case _ =>
@@ -313,6 +320,13 @@ object Bot extends App {
               track.isReady() //this causes the lazy stream to be fetch
             }
           }.start()
+        }
+      }
+
+      def showCurrentlyPlaying(ap: AudioPlayer) = {
+        Option(ap.getCurrentTrack) foreach { track =>
+          val metadata = track.getMetadata
+          discordClient changeStatus Status.stream(metadata.get("title").asInstanceOf[String], metadata.get("origin").asInstanceOf[String])
         }
       }
     })
