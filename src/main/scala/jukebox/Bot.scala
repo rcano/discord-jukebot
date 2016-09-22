@@ -323,11 +323,11 @@ object Bot extends App {
         }
       }
 
-      def showCurrentlyPlaying(ap: AudioPlayer) = {
-        Option(ap.getCurrentTrack) foreach { track =>
+      def showCurrentlyPlaying(ap: AudioPlayer) = ap.getCurrentTrack match {
+        case null => discordClient changeStatus Status.empty
+        case track =>
           val metadata = track.getMetadata
           discordClient changeStatus Status.stream(metadata.get("title").asInstanceOf[String], metadata.get("origin").asInstanceOf[String])
-        }
       }
     })
 
