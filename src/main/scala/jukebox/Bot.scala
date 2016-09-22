@@ -10,7 +10,7 @@ import sx.blah.discord.api.{ClientBuilder => DiscordClientBuilder, events}, even
 import sx.blah.discord.handle.impl.events.{DiscordReconnectedEvent, MessageReceivedEvent, ReadyEvent}
 import sx.blah.discord.handle.obj.{IGuild, IMessage, IUser}
 import sx.blah.discord.util.audio.AudioPlayer
-import sx.blah.discord.util.audio.events.{TrackStartEvent, TrackSkipEvent}
+import sx.blah.discord.util.audio.events.{TrackStartEvent, TrackSkipEvent, ShuffleEvent}
 
 import RegexExtractor._
 
@@ -81,6 +81,23 @@ object Bot extends App {
           case "unpause" | "resume" | "play" =>
             ap.setPaused(false)
             msg.reply("_unpaused_")
+        })
+
+      commands += Command("shuffle", "shuffles the playlist")((msg, ap) => {
+          case "shuffle" =>
+            val wasPaused = ap.isPaused
+            if (!wasPaused) ap.togglePause()
+            val playlist = ap.getPlaylist.asScala
+            val shuffled = scala.util.Random.shuffle(playlist.drop(1))
+            playlist.headOption foreach { h =>
+              playlist.clear()
+              playlist += h
+              playlist ++= shuffled
+            }
+            if (!wasPaused) ap.togglePause()
+            discordClient.getDispatcher().dispatch(new ShuffleEvent(ap))
+            msg.reply("_shuffled_")
+            ensureNextTrackIsCached(ap)
         })
 
       commands += Command("skip", "skips this song")((msg, ap) => {
