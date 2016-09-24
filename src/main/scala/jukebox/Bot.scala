@@ -107,7 +107,9 @@ object Bot extends App {
           case "skip" =>
             ap.skip()
             ap.getCurrentTrack match {
-              case null => msg.reply("_end of playlist_")
+              case null => 
+                msg.reply("_end of playlist_")
+                discordClient changeStatus Status.empty
               case song => msg.reply(s"_skipped to ${song.getMetadata.get("title")}_")
             }
         })
@@ -195,12 +197,14 @@ object Bot extends App {
                 Thread.sleep(200)
               }
               ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
+              if (ap.getPlaylistSize == 0) discordClient changeStatus Status.empty
             }
 
           case regex"""remove range .*""" => msg.reply("I'm sorry, remove range only accepts a pair of naturals")
         })
       commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")((msg, ap) => {
-          case regex"remove (.+)$what" => what match {
+          case regex"remove (.+)$what" =>
+            what match {
               case regex"""(\d+)$n""" =>
                 val num = n.toInt
                 if (num < 0) msg.reply("A negative number? :sweat:")
@@ -228,6 +232,7 @@ object Bot extends App {
                   case _ => msg.reply(s"Sorry, there is no song named `$other`")
                 }
             }
+            if (ap.getPlaylistSize == 0) discordClient changeStatus Status.empty
         })
 
       commands += Command("cancel", "Makes me cancel the processing of a playlist that someone requested.")((msg, ap) => {
