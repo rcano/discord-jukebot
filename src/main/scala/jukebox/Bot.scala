@@ -137,7 +137,7 @@ object Bot extends App {
 
       commands += Command("add <url>", "Addes the given song to the queue.")((msg, ap) => {
           case regex"add (.+)$url" => url match {
-              case regex"(https?://www.youtube.com.+|)$url" =>
+              case regex"(https?://.+|)$url" =>
                 processingPlaylist.fold {
 
                   msg.reply("_adding " + url + "_")
