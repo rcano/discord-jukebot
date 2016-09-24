@@ -137,7 +137,7 @@ object Bot extends App {
 
       commands += Command("add <url>", "Addes the given song to the queue.")((msg, ap) => {
           case regex"add (.+)$url" => url match {
-              case regex"(https?://www.youtube.com.+)$url" =>
+              case regex"(https?://www.youtube.com.+|)$url" =>
                 processingPlaylist.fold {
 
                   msg.reply("_adding " + url + "_")
@@ -168,7 +168,7 @@ object Bot extends App {
                           case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
                         }
                       }(mainThreadExecutionContext)
-                  }.failed.foreach(_.printStackTrace(Console.err))
+                  }.failed.foreach(e => msg.reply(s"Failed: $e"))
 
                 }{ case (owner, _) => msg.reply(s"Sorry, I'm still processing a playlist on ${owner.mention} 's behalf. Please try again later.")}
 
