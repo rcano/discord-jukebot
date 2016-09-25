@@ -307,7 +307,8 @@ object Bot extends App {
               showCurrentlyPlaying(e.getPlayer)
               
               
-            case e: TrackFinishEvent => discordClient changeStatus Status.empty
+            case e: TrackFinishEvent =>
+              if (!e.getNewTrack.isPresent) discordClient changeStatus Status.empty
             
 
             case _ =>
