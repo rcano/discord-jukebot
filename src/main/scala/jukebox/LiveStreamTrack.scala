@@ -33,13 +33,14 @@ object LiveStreamTrack {
     def provide = _provider.map(_.provide).getOrElse(new Array[Byte](0))
     def close() = if (processInput != null) {
       Try(processInput._2.close())
-      processInput._1.destroy()
+      if (processInput._1.isAlive) processInput._1.destroy()
     }
   }
 
 
-  def apply(encoder: String, song: SongMetadata, livestreamerOptions: String, downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
-    val cmd = s"""livestreamer --hls-segment-attempts 1 --hls-segment-threads 5 -O $livestreamerOptions '${song.origin}' worst | ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -"""
+  def apply(encoder: String, song: SongMetadata, livestreamerOptions: Option[String], downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
+    val opts = livestreamerOptions.getOrElse("")
+    val cmd = s"""livestreamer --hls-segment-attempts 1 --hls-segment-threads 5 -O $opts '${song.origin}' worst | ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -"""
     println(Console.CYAN + "running livestream: " + cmd + Console.RESET)
     val res = new AudioPlayer.Track(new LiveStreamAudioProvider(new ProcessBuilder("bash", "-c", cmd), downloadErrorReporter))
     res.getMetadata.put("songMetadata", song)
@@ -47,9 +48,10 @@ object LiveStreamTrack {
   }
 
   private implicit val jsonFormats = org.json4s.DefaultFormats
-  def fetchMetadata(stream: String, options: String): Try[SongMetadata] = Try {
+  def fetchMetadata(stream: String, options: Option[String]): Try[SongMetadata] = Try {
     import scala.sys.process._
-    val json = parseJson(Seq("bash", "-c", s"livestreamer -j $options $stream").lineStream_!.force.mkString("\n")).dyn
+    val opts = options.getOrElse("")
+    val json = parseJson(Seq("bash", "-c", s"livestreamer -j $opts $stream").lineStream_!.force.mkString("\n")).dyn
     json.error.extract[Option[String]] match {
       case Some(error) => throw new Exception(error)
       case _ => SongMetadata(stream, None, stream)

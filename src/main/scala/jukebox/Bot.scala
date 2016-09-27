@@ -105,7 +105,10 @@ object Bot extends App {
 
       commands += Command("skip", "skips this song")((msg, ap) => {
           case "skip" =>
+            val track = ap.getCurrentTrack()
             ap.skip()
+            val p = track.getProvider.asInstanceOf[java.io.Closeable]
+            Try(p.close())
             ap.getCurrentTrack match {
               case null => 
                 msg.reply("_end of playlist_")
@@ -124,7 +127,7 @@ object Bot extends App {
                   //skip manually so as to avoid ap.skipTo logic of calling ready on the InputProvider (wihch in turn causes our logic to fetch the video)
                   for (_ <- 0 until dest) {
                     val track = playlist.remove(0)
-                    val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                    val p = track.getProvider.asInstanceOf[java.io.Closeable]
                     Try(p.close())
                     discordClient.getDispatcher.dispatch(new TrackSkipEvent(ap, track))
                   }
@@ -135,10 +138,10 @@ object Bot extends App {
         })
 
       commands += Command("add livestream <url>", "Adds a livestream to the playlist. Note that duration of this is unknown.")((msg, ap) => {
-          case regex"""add livestream (\w+://[^ ]+)$url(?: (.+))$options""" =>
-            msg.reply("_adding " + url + "_")
-            LiveStreamTrack.fetchMetadata(url, options).map { song =>
-              ap.queue(LiveStreamTrack(clargs.encoder, song, options, error => msg.reply("_" + error + "_")))
+          case regex"""add livestream (\w+://[^ ]+)$url(?: (.+))?$options""" =>
+            msg.reply("_adding " + url + " with options " + options + "_")
+            LiveStreamTrack.fetchMetadata(url, Option(options)).map { song =>
+              ap.queue(LiveStreamTrack(clargs.encoder, song, Option(options), error => msg.reply("_" + error + "_")))
               msg.reply("_added " + url + " to the queue._")
 
               ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
@@ -197,7 +200,7 @@ object Bot extends App {
             else {
               val removedTracks = for (i <- from until to) yield {
                 val track = ap.getPlaylist.remove(from) //removing from is on purpose
-                val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                val p = track.getProvider.asInstanceOf[java.io.Closeable]
                 Try(p.close())
                 val title = SongMetadata.fromMetadata(track.getMetadata).name
                 title
@@ -223,7 +226,7 @@ object Bot extends App {
                 else if (num == 0) ap.skip()
                 else {
                   val track = ap.getPlaylist.remove(num)
-                  val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                  val p = track.getProvider.asInstanceOf[java.io.Closeable]
                   Try(p.close())
                   val title = SongMetadata.fromMetadata(track.getMetadata).name
                   msg.reply(s"_ removed ${title}_")
@@ -235,7 +238,7 @@ object Bot extends App {
                 ap.getPlaylist.asScala.zipWithIndex.find(t => SongMetadata.fromMetadata(t._1.getMetadata).name == other) match {
                   case Some((track, idx)) =>
                     ap.getPlaylist.remove(idx)
-                    val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
+                    val p = track.getProvider.asInstanceOf[java.io.Closeable]
                     Try(p.close())
                     val title = SongMetadata.fromMetadata(track.getMetadata).name
                     msg.reply(s"_ removed ${title}_")
