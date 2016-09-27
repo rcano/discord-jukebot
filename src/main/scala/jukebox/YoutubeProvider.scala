@@ -78,16 +78,14 @@ object YoutubeProvider {
   private def extractSongMetadata(jv: JValue) = {
     val json = jv.dyn
     SongMetadata(java.net.URLDecoder.decode(json.fulltitle.extract, "utf-8"),
-                 json.duration.extract[Option[String]].map(_.toInt).getOrElse(-1),
+                 json.duration.extract[Option[String]].map(_.toInt),
                  json.webpage_url.extract)
   }
 
   case object CancelledException extends Exception
 }
 
-case class SongMetadata(name: String, length: Int, origin: String)
+case class SongMetadata(name: String, length: Option[Int], origin: String)
 object SongMetadata {
-  def fromMetadata(m: java.util.Map[String, Object]) = SongMetadata(m.get("title").asInstanceOf[String],
-                                                                    m.get("duration").asInstanceOf[Int],
-                                                                    m.get("origin").asInstanceOf[String])
+  def fromMetadata(m: java.util.Map[String, Object]) = m.get("songMetadata").asInstanceOf[SongMetadata]
 }

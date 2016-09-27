@@ -65,7 +65,7 @@ object Bot extends App {
             val songs = ap.getPlaylist.asScala map (t => SongMetadata.fromMetadata(t.getMetadata))
             val Seq(head, tail@_*) = songs.zipWithIndex.map(e => e._2 + ": " + e._1.name +
                                                             (if (full) " - " + e._1.origin else "")).grouped(20).toVector
-            val totalTime = songs.map(_.length).sum
+            val totalTime = songs.map(_.length.getOrElse(0)).sum
             msg.reply(s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
             for (s <- tail) {
               Thread.sleep(200)
@@ -110,7 +110,7 @@ object Bot extends App {
               case null => 
                 msg.reply("_end of playlist_")
                 discordClient changeStatus Status.empty
-              case song => msg.reply(s"_skipped to ${song.getMetadata.get("title")}_")
+              case song => msg.reply(s"_skipped to ${SongMetadata.fromMetadata(song.getMetadata).name}_")
             }
         })
       commands += Command("skip to <index>", "skips to the specified song")((msg, ap) => {
@@ -128,14 +128,24 @@ object Bot extends App {
                     Try(p.close())
                     discordClient.getDispatcher.dispatch(new TrackSkipEvent(ap, track))
                   }
-                  msg.reply("_skipping to " + song.getMetadata.get("title") + "_")
+                  msg.reply("_skipping to " + SongMetadata.fromMetadata(song.getMetadata).name + "_")
                 }
               case other => msg.reply("skip to command only accepts a number")
             }
         })
 
+      commands += Command("add livestream <url>", "Adds a livestream to the playlist. Note that duration of this is unknown.")((msg, ap) => {
+          case regex"""add livestream (\w+://[^ ]+)$url(?: (.+))$options""" =>
+            msg.reply("_adding " + url + "_")
+            LiveStreamTrack.fetchMetadata(url, options).map { song =>
+              ap.queue(LiveStreamTrack(clargs.encoder, song, options, error => msg.reply("_" + error + "_")))
+              msg.reply("_added " + url + " to the queue._")
 
-      commands += Command("add <url>", "Addes the given song to the queue.")((msg, ap) => {
+              ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
+            }.failed.foreach(e => msg.reply(s"Failed: $e"))
+        })
+
+      commands += Command("add <url>", "Adds the given song to the queue.")((msg, ap) => {
           case regex"add (.+)$url" => url match {
               case regex"(https?://.+|)$url" =>
                 processingPlaylist.fold {
@@ -189,7 +199,7 @@ object Bot extends App {
                 val track = ap.getPlaylist.remove(from) //removing from is on purpose
                 val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
                 Try(p.close())
-                val title = track.getMetadata.get("title")
+                val title = SongMetadata.fromMetadata(track.getMetadata).name
                 title
               }
               removedTracks.grouped(20) foreach { tracks =>
@@ -215,18 +225,19 @@ object Bot extends App {
                   val track = ap.getPlaylist.remove(num)
                   val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
                   Try(p.close())
-                  val title = track.getMetadata.get("title")
+                  val title = SongMetadata.fromMetadata(track.getMetadata).name
                   msg.reply(s"_ removed ${title}_")
                   ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                 }
 
               case other =>
-                ap.getPlaylist.asScala.zipWithIndex.find(_._1.getMetadata.get("title") == other) match {
+
+                ap.getPlaylist.asScala.zipWithIndex.find(t => SongMetadata.fromMetadata(t._1.getMetadata).name == other) match {
                   case Some((track, idx)) =>
                     ap.getPlaylist.remove(idx)
                     val p = track.getProvider.asInstanceOf[LazyTrack.LazyAudioProvider]
                     Try(p.close())
-                    val title = track.getMetadata.get("title")
+                    val title = SongMetadata.fromMetadata(track.getMetadata).name
                     msg.reply(s"_ removed ${title}_")
                     ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                   case _ => msg.reply(s"Sorry, there is no song named `$other`")
@@ -307,7 +318,8 @@ object Bot extends App {
               showCurrentlyPlaying(e.getPlayer)
               
               
-            case e: TrackFinishEvent => discordClient changeStatus Status.empty
+            case e: TrackFinishEvent =>
+              if (e.getPlayer.getCurrentTrack == null) discordClient changeStatus Status.empty
             
 
             case _ =>
@@ -321,7 +333,7 @@ object Bot extends App {
         ap.getPlaylist.asScala.drop(1).headOption.foreach { track =>
           new Thread() {
             override def run() = {
-              println("Precaching next track: " + track.getMetadata.get("title"))
+              println("Precaching next track: " + SongMetadata.fromMetadata(track.getMetadata).name)
               track.isReady() //this causes the lazy stream to be fetch
             }
           }.start()
@@ -331,8 +343,8 @@ object Bot extends App {
       def showCurrentlyPlaying(ap: AudioPlayer) = ap.getCurrentTrack match {
         case null => discordClient changeStatus Status.empty
         case track =>
-          val metadata = track.getMetadata
-          discordClient changeStatus Status.stream(metadata.get("title").asInstanceOf[String], metadata.get("origin").asInstanceOf[String])
+          val metadata = SongMetadata.fromMetadata(track.getMetadata)
+          discordClient changeStatus Status.stream(metadata.name, metadata.origin.asInstanceOf[String])
       }
     })
 

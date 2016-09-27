@@ -15,12 +15,11 @@ import sx.blah.discord.util.audio.providers.AudioInputStreamProvider
  * AudioPlayer.Track implementation that is lazy with its input stream creation, allowing to save up memory.
  */
 object LazyTrack {
-  class LazyAudioProvider(val audioInputStream: () => AudioInputStream, downloadErrorReporter: Throwable => Unit) extends IAudioProvider {
+  class LazyAudioProvider(val audioInputStream: () => AudioInputStream, downloadErrorReporter: Throwable => Unit) extends IAudioProvider with Closeable {
     @volatile var _audioInputStream: AudioInputStream = _
     lazy val _provider = Try {
       _audioInputStream = audioInputStream()
-      val r = new AudioInputStreamProvider(_audioInputStream)
-      r
+      new AudioInputStreamProvider(_audioInputStream)
     }.recoverWith {
       case e =>
         downloadErrorReporter(e)
@@ -56,9 +55,7 @@ object LazyTrack {
     }
     val inputProvider = new LazyAudioProvider(() => inputStream, downloadErrorReporter)
     val res = new AudioPlayer.Track(inputProvider)
-    res.getMetadata.put("title", song.name)
-    res.getMetadata.put("duration", song.length: java.lang.Integer)
-    res.getMetadata.put("origin", song.origin)
+    res.getMetadata.put("songMetadata", song)
     res
   }
 }
