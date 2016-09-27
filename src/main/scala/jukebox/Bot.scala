@@ -48,12 +48,9 @@ object Bot extends App {
             msg.reply(
               if (ap.getCurrentTrack == null) "Nothing is being played."
               else {
-                val metadata = ap.getCurrentTrack.getMetadata
-                val title = metadata.get("title")
-                val duration = metadata.get("duration").asInstanceOf[Int]
-                val origin = metadata.get("origin")
+                val metadata = SongMetadata.fromMetadata(ap.getCurrentTrack.getMetadata)
                 val transcurred = (ap.getCurrentTrack.getCurrentTrackTime / 1000).toInt
-                s"Currently playing ${title} - ${secondsToString(transcurred)}/${secondsToString(duration)}. ${ap.getPlaylistSize - 1} remaining tracks.\n$origin"
+                s"Currently playing ${metadata.name} - ${secondsToString(transcurred)}/${secondsToString(metadata.length.getOrElse(0))}. ${ap.getPlaylistSize - 1} remaining tracks.\n${metadata.origin}"
               }
             )
         })
