@@ -9,8 +9,8 @@ fork := true
 scalacOptions ++= Seq("-deprecation", "-feature", "-Yinfer-argument-types", "-Xlint")
 
 libraryDependencies ++= Seq(
-  "com.github.austinv11" % "Discord4j" % "2.6.0",
-  "org.json4s" %% "json4s-native" % "3.4.0",
+  "com.github.austinv11" % "Discord4j" % "2.6.1",
+  "org.json4s" %% "json4s-native" % "3.4.1",
   "com.github.scopt" %% "scopt" % "3.5.0"
 )
 enablePlugins(JavaAppPackaging)

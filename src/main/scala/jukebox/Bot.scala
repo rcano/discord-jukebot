@@ -40,46 +40,45 @@ object Bot extends App {
        */
       var processingPlaylist: Option[(IUser, SyncVar[Unit])] = None
 
+      val messageSender = new DiscordRateHonoringSender(_.printStackTrace())
+
       val commands = collection.mutable.ListBuffer[Command]()
       case class Command(name: String, description: String)(val action: (IMessage, AudioPlayer) => String PartialFunction Any)
 
       commands += Command("status", "shows what I'm currently playing and pending.")((msg, ap) => {
           case "status" =>
-            msg.reply(
-              if (ap.getCurrentTrack == null) "Nothing is being played."
-              else {
+            messageSender.reply(msg, if (ap.getCurrentTrack == null) "Nothing is being played."
+                                else {
                 val metadata = SongMetadata.fromMetadata(ap.getCurrentTrack.getMetadata)
                 val transcurred = (ap.getCurrentTrack.getCurrentTrackTime / 1000).toInt
                 s"Currently playing ${metadata.name} - ${secondsToString(transcurred)}/${secondsToString(metadata.length.getOrElse(0))}. ${ap.getPlaylistSize - 1} remaining tracks.\n${metadata.origin}"
-              }
-            )
+              })
         })
 
       commands += Command("list[ full]", "shows the remaining list of songs to be played.")((msg, ap) => {
-          case "list" | "list full" if ap.getPlaylistSize == 0 => msg.reply("Nothing in the queue" )
+          case "list" | "list full" if ap.getPlaylistSize == 0 => messageSender.reply(msg, "Nothing in the queue" )
           case cmd@ ("list" | "list full") =>
             val full = cmd.endsWith("full")
             val songs = ap.getPlaylist.asScala map (t => SongMetadata.fromMetadata(t.getMetadata))
             val Seq(head, tail@_*) = songs.zipWithIndex.map(e => e._2 + ": " + e._1.name +
                                                             (if (full) " - " + e._1.origin else "")).grouped(20).toVector
             val totalTime = songs.map(_.length.getOrElse(0)).sum
-            msg.reply(s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
+            messageSender.reply(msg, s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
             for (s <- tail) {
-              Thread.sleep(200)
-              msg.reply(s.mkString("\n"))
+              messageSender.reply(msg, s.mkString("\n"))
             }
         })
 
       commands += Command("pause/stop", "pause the currently playing song")((msg, ap) => {
           case "pause" | "stop" =>
             ap.setPaused(true)
-            msg.reply("_paused_")
+            messageSender.reply(msg, "_paused_")
             discordClient changeStatus Status.game("paused")
         })
       commands += Command("unpause/resume/play", "resumes playing the song")((msg, ap) => {
           case "unpause" | "resume" | "play" =>
             ap.setPaused(false)
-            msg.reply("_unpaused_")
+            messageSender.reply(msg, "_unpaused_")
             showCurrentlyPlaying(ap)
         })
 
@@ -96,7 +95,7 @@ object Bot extends App {
             }
             if (!wasPaused) ap.togglePause()
             discordClient.getDispatcher().dispatch(new ShuffleEvent(ap))
-            msg.reply("_shuffled_")
+            messageSender.reply(msg, "_shuffled_")
             ensureNextTrackIsCached(ap)
         })
 
@@ -108,15 +107,15 @@ object Bot extends App {
             Try(p.close())
             ap.getCurrentTrack match {
               case null => 
-                msg.reply("_end of playlist_")
+                messageSender.reply(msg, "_end of playlist_")
                 discordClient changeStatus Status.empty
-              case song => msg.reply(s"_skipped to ${SongMetadata.fromMetadata(song.getMetadata).name}_")
+              case song => messageSender.reply(msg, s"_skipped to ${SongMetadata.fromMetadata(song.getMetadata).name}_")
             }
         })
       commands += Command("skip to <index>", "skips to the specified song")((msg, ap) => {
           case regex"skip to (.+)$where" => where match {
               case regex"""(\d+)$num""" =>
-                if (ap.getPlaylistSize == 0) msg.reply("There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
+                if (ap.getPlaylistSize == 0) messageSender.reply(msg, "There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
                 else {
                   val playlist = ap.getPlaylist
                   val dest = math.min(num.toInt, playlist.size - 1)
@@ -128,21 +127,21 @@ object Bot extends App {
                     Try(p.close())
                     discordClient.getDispatcher.dispatch(new TrackSkipEvent(ap, track))
                   }
-                  msg.reply("_skipping to " + SongMetadata.fromMetadata(song.getMetadata).name + "_")
+                  messageSender.reply(msg, "_skipping to " + SongMetadata.fromMetadata(song.getMetadata).name + "_")
                 }
-              case other => msg.reply("skip to command only accepts a number")
+              case other => messageSender.reply(msg, "skip to command only accepts a number")
             }
         })
 
       commands += Command("add livestream <url>", "Adds a livestream to the playlist. Note that duration of this is unknown.")((msg, ap) => {
           case regex"""add livestream (\w+://[^ ]+)$url(?: (.+))?$options""" =>
-            msg.reply("_adding " + url + " with options " + options + "_")
+            messageSender.reply(msg, "_adding " + url + " with options " + options + "_")
             LiveStreamTrack.fetchMetadata(url, Option(options)).map { song =>
-              ap.queue(LiveStreamTrack(clargs.encoder, song, Option(options), error => msg.reply("_" + error + "_")))
-              msg.reply("_added " + url + " to the queue._")
+              ap.queue(LiveStreamTrack(clargs.encoder, song, Option(options), error => messageSender.reply(msg, "_" + error + "_")))
+              messageSender.reply(msg, "_added " + url + " to the queue._")
 
               ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
-            }.failed.foreach(e => msg.reply(s"Failed: $e"))
+            }.failed.foreach(e => messageSender.reply(msg, s"Failed: $e"))
         })
 
       commands += Command("add <url>", "Adds the given song to the queue.")((msg, ap) => {
@@ -150,40 +149,40 @@ object Bot extends App {
               case regex"(https?://.+|)$url" =>
                 processingPlaylist.fold {
 
-                  msg.reply("_adding " + url + "_")
+                  messageSender.reply(msg, "_adding " + url + "_")
                   val errorReporter: SongMetadata => Throwable => Unit = song => t => {
-                    msg.reply(s"There was an error when downloading ${song.name}: $t")
+                    messageSender.reply(msg, s"There was an error when downloading ${song.name}: $t")
                     commands.find(_.name == "skip").foreach(_.action(msg, ap).apply("skip")) //invoke skip
                   }
                   YoutubeProvider.fetchInformation(url,
-                                                   error => msg.reply("_" + error + "_"),
-                                                   i => if (i > 0 && i % 20 == 0) msg.reply(s"_processed $i videos..._")).
+                                                   error => messageSender.reply(msg, "_" + error + "_"),
+                                                   i => if (i > 0 && i % 20 == 0) messageSender.reply(msg, s"_processed $i videos..._")).
                   map {
                     case (1, _, res) =>
                       val song = res.value.get.get.head
                       ap.queue(LazyTrack(clargs.encoder, song, errorReporter(song)))
-                      msg.reply("_added " + res.value.get.get.head.name + " to the queue._")
+                      messageSender.reply(msg, "_added " + res.value.get.get.head.name + " to the queue._")
 
                       ensureNextTrackIsCached(ap) //if we just added a song after the currently playing, ensure it starts fetching it
                     case (num, cancel, playlistF) =>
                       processingPlaylist = Some((msg.getAuthor, cancel))
-                      msg.reply(s"_processing $num videos in the playlist._")
+                      messageSender.reply(msg, s"_processing $num videos in the playlist._")
                       playlistF.onComplete { res =>
                         processingPlaylist = None
                         res match {
-                          case scala.util.Success(playlist) => msg.reply(s"_added $num songs to the queue._")
+                          case scala.util.Success(playlist) => messageSender.reply(msg, s"_added $num songs to the queue._")
                             playlist foreach (s => ap.queue(LazyTrack(clargs.encoder, s, errorReporter(s))))
                             ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
-                          case scala.util.Failure(YoutubeProvider.CancelledException) => msg.reply(s"_work cancelled_")
-                          case scala.util.Failure(e) => msg.reply(s"Failed processing $url: $e.")
+                          case scala.util.Failure(YoutubeProvider.CancelledException) => messageSender.reply(msg, s"_work cancelled_")
+                          case scala.util.Failure(e) => messageSender.reply(msg, s"Failed processing $url: $e.")
                         }
                       }(mainThreadExecutionContext)
-                  }.failed.foreach(e => msg.reply(s"Failed: $e"))
+                  }.failed.foreach(e => messageSender.reply(msg, s"Failed: $e"))
 
-                }{ case (owner, _) => msg.reply(s"Sorry, I'm still processing a playlist on ${owner.mention} 's behalf. Please try again later.")}
+                }{ case (owner, _) => messageSender.reply(msg, s"Sorry, I'm still processing a playlist on ${owner.mention} 's behalf. Please try again later.")}
 
 
-              case other => msg.reply("for now I only support youtube links. Sorry.")
+              case other => messageSender.reply(msg, "for now I only support youtube links. Sorry.")
             }
         })
 
@@ -192,8 +191,8 @@ object Bot extends App {
           case regex"""remove range (\d+)$n1 (\d+)$n2""" =>
             val from = n1.toInt
             val to = n2.toInt
-            if (from > to) msg.reply(s"$from is greater than $to ... :sweat:")
-            else if (to > ap.getPlaylistSize) msg.reply(s"Please remove songs with indices **within** the list (the maximum upper bound is currently ${ap.getPlaylistSize}).")
+            if (from > to) messageSender.reply(msg, s"$from is greater than $to ... :sweat:")
+            else if (to > ap.getPlaylistSize) messageSender.reply(msg, s"Please remove songs with indices **within** the list (the maximum upper bound is currently ${ap.getPlaylistSize}).")
             else {
               val removedTracks = for (i <- from until to) yield {
                 val track = ap.getPlaylist.remove(from) //removing from is on purpose
@@ -203,30 +202,29 @@ object Bot extends App {
                 title
               }
               removedTracks.grouped(20) foreach { tracks =>
-                msg.reply("_removed:\n" + tracks.mkString("\n"))
-                Thread.sleep(200)
+                messageSender.reply(msg, "_removed:\n" + tracks.mkString("\n"))
               }
               ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
               if (ap.getPlaylistSize == 0) discordClient changeStatus Status.empty
             }
 
-          case regex"""remove range .*""" => msg.reply("I'm sorry, remove range only accepts a pair of naturals")
+          case regex"""remove range .*""" => messageSender.reply(msg, "I'm sorry, remove range only accepts a pair of naturals")
         })
       commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")((msg, ap) => {
           case regex"remove (.+)$what" =>
             what match {
               case regex"""(\d+)$n""" =>
                 val num = n.toInt
-                if (num < 0) msg.reply("A negative number? :sweat:")
-                else if (ap.getPlaylistSize == 0) msg.reply("The playlist is empty.")
-                else if (num >= ap.getPlaylistSize) msg.reply(s"$num is larger than the playlist's size, you meant to remove the last one? it's ${ap.getPlaylistSize - 1}")
+                if (num < 0) messageSender.reply(msg, "A negative number? :sweat:")
+                else if (ap.getPlaylistSize == 0) messageSender.reply(msg, "The playlist is empty.")
+                else if (num >= ap.getPlaylistSize) messageSender.reply(msg, s"$num is larger than the playlist's size, you meant to remove the last one? it's ${ap.getPlaylistSize - 1}")
                 else if (num == 0) ap.skip()
                 else {
                   val track = ap.getPlaylist.remove(num)
                   val p = track.getProvider.asInstanceOf[java.io.Closeable]
                   Try(p.close())
                   val title = SongMetadata.fromMetadata(track.getMetadata).name
-                  msg.reply(s"_ removed ${title}_")
+                  messageSender.reply(msg, s"_ removed ${title}_")
                   ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
                 }
 
@@ -238,20 +236,20 @@ object Bot extends App {
                     val p = track.getProvider.asInstanceOf[java.io.Closeable]
                     Try(p.close())
                     val title = SongMetadata.fromMetadata(track.getMetadata).name
-                    msg.reply(s"_ removed ${title}_")
+                    messageSender.reply(msg, s"_ removed ${title}_")
                     ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
-                  case _ => msg.reply(s"Sorry, there is no song named `$other`")
+                  case _ => messageSender.reply(msg, s"Sorry, there is no song named `$other`")
                 }
             }
             if (ap.getPlaylistSize == 0) discordClient changeStatus Status.empty
         })
 
       commands += Command("cancel", "Makes me cancel the processing of a playlist that someone requested.")((msg, ap) => {
-          case "cancel" if processingPlaylist.isEmpty => msg.reply("I'm not processing anything, so there is nothing to cancel.")
+          case "cancel" if processingPlaylist.isEmpty => messageSender.reply(msg, "I'm not processing anything, so there is nothing to cancel.")
           case "cancel" =>
             val (user, c) = processingPlaylist.get
             c.put(())
-            msg.getChannel.sendMessage(s"Cancelling ${user.mention} 's work as per ${msg.getAuthor.mention} 's request.")
+            messageSender.send(msg.getChannel, s"Cancelling ${user.mention} 's work as per ${msg.getAuthor.mention} 's request.")
         })
 
 
@@ -271,7 +269,7 @@ object Bot extends App {
             val maxCmdWidth = commands.map(_.name.length).max
             val helpString = new StringBuilder
             commands foreach (c => helpString.append(c.name.padTo(maxCmdWidth, ' ')).append(" - ").append(c.description).append("\n"))
-            msg.reply("```\n" + helpString.toString + "```")
+            messageSender.reply(msg, "```\n" + helpString.toString + "```")
         })
 
 
@@ -303,7 +301,7 @@ object Bot extends App {
               val cmd = msg.getContent.stripPrefix(me).replaceFirst("^[,:]?\\s+", "")
               commands.find(_.action(msg, ap).isDefinedAt(cmd)) match {
                 case Some(command) => command.action(msg, ap)(cmd)
-                case _ => msg.reply(s"Sorry, I don't know the command: $cmd")
+                case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
 
               }
 
