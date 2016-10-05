@@ -35,7 +35,7 @@ class DiscordRateHonoringSender(val exceptionLogger: Throwable => Unit = null) {
                 val (targetMsg, rest) = msg.splitAt(MaxSize)
                 try {
                   channel.sendMessage(targetMsg)
-                  msgs.addFirst((rest, promise))
+                  msgs.addFirst((author.map(_.mention + ", ").getOrElse("") + rest, promise))
                 } catch {
                   case e: RateLimitException => //do nothing, will reattempt the next cycle
                   case NonFatal(e) =>
