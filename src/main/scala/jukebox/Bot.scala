@@ -60,13 +60,11 @@ object Bot extends App {
           case cmd@ ("list" | "list full") =>
             val full = cmd.endsWith("full")
             val songs = ap.getPlaylist.asScala map (t => SongMetadata.fromMetadata(t.getMetadata))
-            val Seq(head, tail@_*) = songs.zipWithIndex.map(e => e._2 + ": " + e._1.name +
-                                                            (if (full) " - " + e._1.origin else "")).grouped(20).toVector
+            val songsInfo = songs.zipWithIndex.map(e => e._2 + ": " + e._1.name +
+                                                   (if (full) " - " + e._1.origin else ""))
             val totalTime = songs.map(_.length.getOrElse(0)).sum
-            messageSender.reply(msg, s"Playlist total time ${secondsToString(totalTime)} :\n" + head.mkString("\n"))
-            for (s <- tail) {
-              messageSender.reply(msg, s.mkString("\n"))
-            }
+            messageSender.reply(msg, s"Playlist total time ${secondsToString(totalTime)}")
+            songsInfo foreach (messageSender.reply(msg, _))
         })
 
       commands += Command("pause/stop", "pause the currently playing song")((msg, ap) => {
@@ -201,9 +199,8 @@ object Bot extends App {
                 val title = SongMetadata.fromMetadata(track.getMetadata).name
                 title
               }
-              removedTracks.grouped(20) foreach { tracks =>
-                messageSender.reply(msg, "_removed:\n" + tracks.mkString("\n"))
-              }
+              messageSender.reply(msg, "_removed:_")
+              removedTracks foreach (t => "_" + t + "_")
               ensureNextTrackIsCached(ap) //make sure the song after the currently playing is cached.
               if (ap.getPlaylistSize == 0) discordClient changeStatus Status.empty
             }
