@@ -12,7 +12,7 @@ import sx.blah.discord.util.RateLimitException
  * Helper utility class that follows a rate/s buffering system to send messages.
  */
 class DiscordRateHonoringSender(val exceptionLogger: Throwable => Unit = null) {
-  private final val MaxSize = 2000
+  private final val MaxSize = 1500
   private val scheduler = Executors.newSingleThreadScheduledExecutor()
   private val pendingMessages = new java.util.HashMap[(IChannel, Option[IUser]), java.util.LinkedList[(String, Promise[Unit])]]().asScala.withDefaultValue(new java.util.LinkedList)
   scheduler.scheduleWithFixedDelay(new Runnable {
