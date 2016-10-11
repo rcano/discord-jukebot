@@ -6,6 +6,7 @@ import scala.collection.JavaConverters._
 import scala.concurrent._
 import scala.util.Try
 
+import sx.blah.discord.Discord4J
 import sx.blah.discord.api.{ClientBuilder => DiscordClientBuilder, events}, events.{Event, IListener}
 import sx.blah.discord.handle.impl.events.{DiscordReconnectedEvent, MessageReceivedEvent, ReadyEvent}
 import sx.blah.discord.handle.obj.{IGuild, IMessage, IUser, Status}
@@ -25,6 +26,8 @@ object Bot extends App {
 
   val discordClient = new DiscordClientBuilder().withToken(clargs.discordToken).login()
 
+//  val logger = Discord4J.LOGGER.asInstanceOf[Discord4J.Discord4JLogger]
+//  logger.setLevel(Discord4J.Discord4JLogger.Level.DEBUG)
 
   /*
    * STATE MACHINE
@@ -149,6 +152,7 @@ object Bot extends App {
 
                   messageSender.reply(msg, "_adding " + url + "_")
                   val errorReporter: SongMetadata => Throwable => Unit = song => t => {
+                    t.printStackTrace()
                     messageSender.reply(msg, s"There was an error when downloading ${song.name}: $t")
                     commands.find(_.name == "skip").foreach(_.action(msg, ap).apply("skip")) //invoke skip
                   }
