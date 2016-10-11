@@ -1,11 +1,14 @@
 package jukebox
 
+import java.nio.channels.FileChannel
+import java.nio.file._
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 import javax.sound.sampled.AudioInputStream
 import org.json4s._
 
+import scala.collection.JavaConverters._
 import scala.concurrent._
 import scala.sys.process._
 import scala.util.Try
@@ -25,7 +28,7 @@ object YoutubeProvider {
    */
   def fetchInformation(url: String, errorReporter: String => Unit, progressReporter: Int => Unit): Try[(Int, SyncVar[Unit], Future[Seq[SongMetadata]])] = Try {
     implicit val commandExecutor = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(10))
-    runCommand("youtube-dl -q -j --flat-playlist --".split(" ").toSeq :+ url) match {
+    runCommand("youtube-dl --no-call-home -q -j --flat-playlist --".split(" ").toSeq :+ url) match {
       case (Seq(), errorLog) => throw new Exception(errorLog.mkString("\n"))
       case (Seq(line), _) => (1, new SyncVar, Future.successful(Seq(extractSongMetadata(parseJson(line)))))
       case (playlist, _) =>
@@ -41,7 +44,7 @@ object YoutubeProvider {
               if (cancel.isSet)//need to check again here, because the future is scheduled and handled much later
                 throw CancelledException
 
-              runCommand("youtube-dl -q -j --flat-playlist --".split(" ").toSeq :+ u) match {
+              runCommand("youtube-dl --no-call-home -q -j --flat-playlist --".split(" ").toSeq :+ u) match {
                 case (Seq(), errorLog) =>
                   errorReporter(s"Failed processing $u\n" + errorLog.mkString)
                   None
@@ -57,13 +60,24 @@ object YoutubeProvider {
     }
   }
 
-  def download(song: SongMetadata): Try[Array[Byte]] = {
-    val res = new java.io.ByteArrayOutputStream(1024*1024 * 5)
+  def download(song: SongMetadata): Try[Path] = {
+    val shmTmpDir = Files.createTempDirectory(Paths.get("/dev/shm"), "jukebox")
     var errorLog = Seq.empty[String]
-    val cmd = Seq("youtube-dl", "-q", "-f", "bestaudio/best", "--no-playlist", "-4", "--no-cache-dir", "-o", "-", "--") :+ song.origin
+
+    val cmd = Seq("youtube-dl", "--no-call-home", "-q", "-f", "bestaudio/best", "--no-playlist", "--no-part", "-4", "--no-cache-dir", "--") :+ song.origin
     println("running command: " + cmd)
-    (cmd #> res).!(ProcessLogger(l => errorLog :+= l)) match {
-      case 0 => scala.util.Success(res.toByteArray)
+    Process(cmd, Some(shmTmpDir.toFile)).!(ProcessLogger(l => errorLog :+= l)) match {
+      case 0 => Try {
+          val song = Files.list(shmTmpDir).iterator.asScala.filter { p => 
+            if (p.getFileName.toString.matches(".+Frag\\d+$")) { //get rid of whatever trash youtube-dl left behind
+              Files.delete(p)
+              false
+            } else true
+          }.next
+          val fileSize = Files.size(song)
+          println(f"Song's size ${fileSize / 1024f / 1024}%.2fMB")
+          song
+        }
       case other => scala.util.Failure(new Exception(s"exit value $other. " + errorLog.mkString))
     }
   }

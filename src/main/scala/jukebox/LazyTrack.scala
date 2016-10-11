@@ -1,6 +1,7 @@
 package jukebox
 
 import java.io._
+import java.nio.file.Files
 import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 
@@ -32,23 +33,19 @@ object LazyTrack {
   def apply(encoder: String, song: SongMetadata, downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
     lazy val inputStream = {
       println(Console.CYAN + "Getting song ready " + song + Console.RESET)
-      val bytes = YoutubeProvider.download(song).get
+      val file = YoutubeProvider.download(song).get
 
-      val process = new ProcessBuilder(s"$encoder -i - -f mp3 -ac 2 -ar 48000 -map a -".split(" "):_*).
+      val process = new ProcessBuilder(Array(s"$encoder", "-i", file.toString, "-f", "mp3", "-ac", "2", "-ar", "48000",  "-map",  "a",  "-"):_*).
       redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
+//      redirectError(ProcessBuilder.Redirect.INHERIT). //stderr must be consumed, or ffmpeg won't emit output
       start()
-      new Thread() {
-        override def run = try {
-          scala.sys.process.BasicIO.transferFully(new ByteArrayInputStream(bytes), process.getOutputStream)
-          process.getOutputStream.close()
-        } catch {
-          case e: IOException if e.getMessage == "Broken pipe" =>
-        }
-      }.start()
       val inputStream = new BufferedInputStream(process.getInputStream, 1024 * 10) {  //need some buffer in order to be able to reset, which AudioSystem will attempt
         override def close = {
           super.close()
           if (process.isAlive) process.destroy()
+          val parent = file.getParent
+          Files.delete(file)
+          Files.delete(parent)
         }
       }
       AudioSystem getAudioInputStream inputStream
