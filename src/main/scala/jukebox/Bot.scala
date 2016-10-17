@@ -264,6 +264,9 @@ object Bot extends App {
               channel.leave()
             }
         })
+      commands += Command("kill yourself", s"Makes me die.")((msg, ap) => {
+          case "leave" => messageSender.reply(msg, "Bye bye.")
+        })
 
       commands += Command("help", "Prints this message")((msg, ap) => {
           case "help" =>
