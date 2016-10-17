@@ -192,7 +192,6 @@ public class DiscordVoiceWS extends WebSocketAdapter {
                     try {
                         sleep(ms, (int) nanosRem);
                     } catch (InterruptedException ex) {
-                        Logger.getLogger(DiscordVoiceWS.class.getName()).log(Level.SEVERE, null, ex);
                     }
                 }
             }
