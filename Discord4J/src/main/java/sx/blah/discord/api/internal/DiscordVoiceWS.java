@@ -170,18 +170,17 @@ public class DiscordVoiceWS extends WebSocketAdapter {
 			}
 		};
         new Thread("D4J AudioThread") {
+            private final long SLEEP_INTERVAL = AudioManager.OPUS_FRAME_TIME_AMOUNT * 1000000; //frame time amount in nanoseconds.
             @Override
             public void run() {
                 long nextTarget = 0;
                 while (!stopAudioHandler) {
-                    while (nextTarget > System.nanoTime()) {
-                        sleepFor(250000);
-                    }
                     long now = System.nanoTime();
                     sendThread.run();
                     long total = System.nanoTime() - now;
-                    nextTarget = now + (20 * 1000000) - total;
-                    sleepFor(19000000 - total + 500000);
+                    nextTarget = now + SLEEP_INTERVAL - total;
+                    sleepFor(SLEEP_INTERVAL - total - 100000);
+                    while (nextTarget > System.nanoTime()); //consume cycles
                 }
             }
 

@@ -265,7 +265,9 @@ object Bot extends App {
             }
         })
       commands += Command("kill yourself", s"Makes me die.")((msg, ap) => {
-          case "leave" => messageSender.reply(msg, "Bye bye.")
+          case "kill yourself" => 
+            messageSender.reply(msg, "Bye bye.")
+            sys.exit(0)
         })
 
       commands += Command("help", "Prints this message")((msg, ap) => {
