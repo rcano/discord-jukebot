@@ -598,17 +598,8 @@ public class AudioPlayer implements IAudioProvider {
 				totalTrackTime = currentTrackTime;
 			}
 
-			int key = (int) (currentTrackTime/20) - 1; //Arrays are 0-based
-			byte[] provided;
+			return provider.provide();
 
-			if (audioCache.size() > key) {
-				provided = audioCache.get(key);
-			} else {
-				provided = provider.provide();
-				audioCache.add(key, provided);
-			}
-
-			return provided;
 		}
 
 		@Override
