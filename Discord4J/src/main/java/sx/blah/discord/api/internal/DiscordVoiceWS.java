@@ -29,9 +29,12 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -147,6 +150,14 @@ public class DiscordVoiceWS extends WebSocketAdapter {
 
 			@Override
 			public void run() {
+                boolean networkUp = false;
+                try {
+                    for (NetworkInterface iface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                        if (!iface.isLoopback() && iface.isUp()) networkUp = true;
+                    }
+                } catch (SocketException ex) {
+                }
+                if (!networkUp) return;
 				try {
 					byte[] data = guild.getAudioManager().getAudio();
 					if (data != null && data.length > 0 && !Discord4J.audioDisabled.get()) {
@@ -164,6 +175,9 @@ public class DiscordVoiceWS extends WebSocketAdapter {
 					} else if (isSpeaking) {
 						setSpeaking(false);
 					}
+				} catch (IOException e) {
+                    if (!"Network is unreachable".equals(e.getMessage()))
+	      				Discord4J.LOGGER.error(LogMarkers.VOICE_WEBSOCKET, "Discord Internal Exception", e);
 				} catch (Exception e) {
 					Discord4J.LOGGER.error(LogMarkers.VOICE_WEBSOCKET, "Discord Internal Exception", e);
 				}
@@ -243,7 +257,7 @@ public class DiscordVoiceWS extends WebSocketAdapter {
 	@Override
 	public void onWebSocketClose(int statusCode, String reason) {
 		super.onWebSocketClose(statusCode, reason);
-		Discord4J.LOGGER.debug(LogMarkers.VOICE_WEBSOCKET, "Voice Websocket disconnected with status code {} and reason {}.", statusCode, reason);
+		Discord4J.LOGGER.debug(LogMarkers.VOICE_WEBSOCKET, "Voice Websocket disconnected with status code {} and reason {}", statusCode, reason);
 	}
 
 }

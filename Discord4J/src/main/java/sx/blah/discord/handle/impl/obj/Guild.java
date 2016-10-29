@@ -215,6 +215,13 @@ public class Guild implements IGuild {
 	}
 
 	@Override
+	public List<IUser> getUsersByRole(IRole role) {
+		return users.stream()
+				.filter(user -> user.getRolesForGuild(this).contains(role))
+				.collect(Collectors.toList());
+	}
+
+	@Override
 	public String getName() {
 		return name;
 	}
@@ -300,6 +307,13 @@ public class Guild implements IGuild {
 	@Override
 	public IVoiceChannel getAFKChannel() {
 		return getVoiceChannelByID(afkChannel);
+	}
+
+	@Override
+	public IVoiceChannel getConnectedVoiceChannel() {
+		return client.getConnectedVoiceChannels().stream()
+				.filter((c -> voiceChannels.contains(c)))
+				.findFirst().orElse(null);
 	}
 
 	@Override
@@ -483,7 +497,7 @@ public class Guild implements IGuild {
 		DiscordUtils.checkPermissions(client, this, EnumSet.of(Permissions.MANAGE_CHANNELS));
 
 		if (!client.isReady()) {
-			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Bot is not yet ready!");
+			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Attempt to create channel before bot is ready!");
 			return null;
 		}
 
@@ -494,7 +508,7 @@ public class Guild implements IGuild {
 					new StringEntity(DiscordUtils.GSON.toJson(new ChannelCreateRequest(name, "text")))),
 					ChannelObject.class);
 
-			IChannel channel = DiscordUtils.getChannelFromJSON(client, this, response);
+			IChannel channel = DiscordUtils.getChannelFromJSON(this, response);
 			addChannel(channel);
 
 			return channel;
@@ -509,7 +523,7 @@ public class Guild implements IGuild {
 		DiscordUtils.checkPermissions(client, this, EnumSet.of(Permissions.MANAGE_CHANNELS));
 
 		if (!client.isReady()) {
-			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Bot is not yet ready!");
+			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Attempt to create voice channel before bot is ready!");
 			return null;
 		}
 
@@ -520,7 +534,7 @@ public class Guild implements IGuild {
 					new StringEntity(DiscordUtils.GSON.toJson(new ChannelCreateRequest(name, "voice")))),
 					ChannelObject.class);
 
-			IVoiceChannel channel = DiscordUtils.getVoiceChannelFromJSON(client, this, response);
+			IVoiceChannel channel = DiscordUtils.getVoiceChannelFromJSON(this, response);
 			addVoiceChannel(channel);
 
 			return channel;

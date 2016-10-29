@@ -286,14 +286,14 @@ public class Message implements IMessage {
 					MessageObject.class);
 
 			IMessage oldMessage = copy();
-			DiscordUtils.getMessageFromJSON(getShard(), channel, response);
+			DiscordUtils.getMessageFromJSON(channel, response);
 			//Event dispatched here because otherwise there'll be an NPE as for some reason when the bot edits a message,
 			// the event chain goes like this:
 			//Original message edited to null, then the null message edited to the new content
 			client.getDispatcher().dispatch(new MessageUpdateEvent(oldMessage, this));
 
 		} else {
-			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Bot is not yet ready!");
+			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Attempt to edit message before bot is ready!");
 		}
 		return this;
 	}
@@ -347,7 +347,7 @@ public class Message implements IMessage {
 		if (client.isReady()) {
 			((DiscordClientImpl) client).REQUESTS.DELETE.makeRequest(DiscordEndpoints.CHANNELS+channel.getID()+"/messages/"+id);
 		} else {
-			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Bot is not yet ready!");
+			Discord4J.LOGGER.error(LogMarkers.HANDLE, "Attempt to delete message before bot is ready!");
 		}
 	}
 

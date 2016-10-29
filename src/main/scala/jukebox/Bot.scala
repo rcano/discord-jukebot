@@ -8,7 +8,7 @@ import scala.util.Try
 
 import sx.blah.discord.Discord4J
 import sx.blah.discord.api.{ClientBuilder => DiscordClientBuilder, events}, events.{Event, IListener}
-import sx.blah.discord.handle.impl.events.{DiscordReconnectedEvent, MessageReceivedEvent, ReadyEvent}
+import sx.blah.discord.handle.impl.events.{DiscordDisconnectedEvent, DiscordReconnectedEvent, MessageReceivedEvent, ReadyEvent}
 import sx.blah.discord.handle.obj.{IGuild, IMessage, IUser, Status}
 import sx.blah.discord.util.audio.AudioPlayer
 import sx.blah.discord.util.audio.events.{TrackStartEvent, TrackSkipEvent, ShuffleEvent, TrackFinishEvent}
@@ -24,7 +24,7 @@ object Bot extends App {
     opt[String]("encoding-tool").action((x, c) => c.copy(encoder = x)).required.text("path to binary that will perform encoding (e.g.: ffmpeg or avconv)")
   }.parse(args, new Clargs()).getOrElse(sys.exit(0))
 
-  val discordClient = new DiscordClientBuilder().withToken(clargs.discordToken).login()
+  val discordClient = new DiscordClientBuilder().withToken(clargs.discordToken).withPingTimeout(1).withTimeout(2000).login()
 
 //  val logger = Discord4J.LOGGER.asInstanceOf[Discord4J.Discord4JLogger]
 //  logger.setLevel(Discord4J.Discord4JLogger.Level.DEBUG)
@@ -296,19 +296,32 @@ object Bot extends App {
                 channel.join()
               }
 
+            case _: DiscordDisconnectedEvent =>
+              println(Console.RED + "disconnected from Discord, attempting to reconnect...")
+              discordClient.login()
+
 
               /*
                * handle commands
                */
             case msgEvt: MessageReceivedEvent if msgEvt.getMessage.getContent startsWith me =>
               val msg = msgEvt.getMessage
-              val ap = AudioPlayer.getAudioPlayerForGuild(msg.getChannel.getGuild)
+              val guild = msg.getGuild match {
+                case null => //try to detect which guild the bot shares with the user, if there are many, pick the first
+                  discordClient.getGuilds.asScala.find(_.getUserByID(msg.getAuthor.getID) != null)
+                case guild => Some(guild)
+              }
+              guild match {
+                case None => messageSender.reply(msg, "I could not identify the guild we share, sorry.")
+                case Some(guild) =>
+                  val ap = AudioPlayer.getAudioPlayerForGuild(guild)
 
-              val cmd = msg.getContent.stripPrefix(me).replaceFirst("^[,:]?\\s+", "")
-              commands.find(_.action(msg, ap).isDefinedAt(cmd)) match {
-                case Some(command) => command.action(msg, ap)(cmd)
-                case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
+                  val cmd = msg.getContent.stripPrefix(me).replaceFirst("^[,:]?\\s+", "")
+                  commands.find(_.action(msg, ap).isDefinedAt(cmd)) match {
+                    case Some(command) => command.action(msg, ap)(cmd)
+                    case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
 
+                  }
               }
 
 
@@ -356,6 +369,35 @@ object Bot extends App {
     val hours = if (seconds >= 3600) (seconds / 3600) + ":" else ""
     f"${hours}${(seconds % 3600) / 60}%02d:${seconds % 60}%02d"
   }
+
+  val connectionChecker = new Thread("Network checker") {
+    import java.net._
+    var connectedState = true
+    override def run = {
+      //check every 500 to see if the newtork is up, if it isn't, disconnect the client and reconnect it when it gets back
+      while (!Thread.interrupted) {
+        try {
+          val noLoopbackExists = NetworkInterface.getNetworkInterfaces.asScala.toArray.exists(n => !n.isLoopback && n.isUp)
+          if (noLoopbackExists) {
+            if (!connectedState) {
+              println(Console.YELLOW + "reconning the client..." + Console.RESET)
+              discordClient.login()
+              connectedState = true
+            }
+          } else if (connectedState) {
+            println(Console.YELLOW + "disconnecting the client on network down..." + Console.RESET)
+            connectedState = false
+            if (discordClient.isLoggedIn) discordClient.logout
+          }
+        } catch {
+          case e: Exception => e.printStackTrace()
+        }
+        Thread.sleep(500)
+      }
+    }
+  }
+  connectionChecker.setDaemon(true)
+  connectionChecker.start()
   /**
    * make an execution context out of the main thread.
    */
