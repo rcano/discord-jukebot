@@ -377,7 +377,7 @@ object Bot extends App {
       //check every 500 to see if the newtork is up, if it isn't, disconnect the client and reconnect it when it gets back
       while (!Thread.interrupted) {
         try {
-          val noLoopbackExists = NetworkInterface.getNetworkInterfaces.asScala.toArray.exists(n => !n.isLoopback && n.isUp)
+          val noLoopbackExists = NetworkInterface.getNetworkInterfaces.asScala.toArray.exists(n => !n.isLoopback && n.isUp && InetAddress.getByName("4.2.2.2").isReachable(n, 50, 2000))
           if (noLoopbackExists) {
             if (!connectedState) {
               println(Console.YELLOW + "reconning the client..." + Console.RESET)
