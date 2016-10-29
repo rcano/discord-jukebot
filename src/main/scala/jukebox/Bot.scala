@@ -371,14 +371,15 @@ object Bot extends App {
   }
 
   val connectionChecker = new Thread("Network checker") {
+    import scala.sys.process._
     import java.net._
     var connectedState = true
     override def run = {
-      //check every 500 to see if the newtork is up, if it isn't, disconnect the client and reconnect it when it gets back
+      //check every 1000 to see if the newtork is up, if it isn't, disconnect the client and reconnect it when it gets back
       while (!Thread.interrupted) {
         try {
-          val noLoopbackExists = NetworkInterface.getNetworkInterfaces.asScala.toArray.exists(n => !n.isLoopback && n.isUp)
-          if (noLoopbackExists) {
+          val networkUp = Seq("ping", "-n", "-c", "1", "8.8.8.8").lineStream_!.exists(_ contains "1 received")
+          if (networkUp) {
             if (!connectedState) {
               println(Console.YELLOW + "reconning the client..." + Console.RESET)
               discordClient.login()
@@ -392,7 +393,7 @@ object Bot extends App {
         } catch {
           case e: Exception => e.printStackTrace()
         }
-        Thread.sleep(500)
+        Thread.sleep(1000)
       }
     }
   }
