@@ -8,7 +8,7 @@ import sx.blah.discord.api.internal.json.objects.InviteObject;
 import sx.blah.discord.api.internal.json.objects.PrivateChannelObject;
 import sx.blah.discord.api.internal.json.requests.PresenceUpdateRequest;
 import sx.blah.discord.api.internal.json.requests.PrivateChannelCreateRequest;
-import sx.blah.discord.handle.impl.events.DiscordDisconnectedEvent;
+import sx.blah.discord.handle.impl.events.DisconnectedEvent;
 import sx.blah.discord.handle.impl.events.PresenceUpdateEvent;
 import sx.blah.discord.handle.impl.events.StatusChangeEvent;
 import sx.blah.discord.handle.impl.obj.User;
@@ -16,6 +16,7 @@ import sx.blah.discord.handle.obj.*;
 import sx.blah.discord.util.DiscordException;
 import sx.blah.discord.util.LogMarkers;
 import sx.blah.discord.util.RateLimitException;
+import sx.blah.discord.util.RequestBuffer;
 
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -55,14 +56,20 @@ public class ShardImpl implements IShard {
 	@Override
 	public void login() throws DiscordException {
 		Discord4J.LOGGER.trace(LogMarkers.API, "Shard logging in.");
-		this.ws = new DiscordWS(this, gateway, isDaemon);
+		this.ws = new DiscordWS(this, gateway);
 	}
 
 	@Override
-	public void logout() throws DiscordException, RateLimitException {
+	public void logout() throws DiscordException {
 		if (isLoggedIn()) {
-			getConnectedVoiceChannels().forEach(IVoiceChannel::leave);
-			ws.disconnect(DiscordDisconnectedEvent.Reason.LOGGED_OUT);
+			getConnectedVoiceChannels().forEach(channel -> {
+				RequestBuffer.RequestFuture<IVoiceChannel> request = RequestBuffer.request(() -> {
+					channel.leave();
+					return channel;
+				});
+				request.get();
+			});
+			ws.disconnect(DisconnectedEvent.Reason.LOGGED_OUT);
 		} else {
 			Discord4J.LOGGER.error(LogMarkers.API, "Attempt to logout before bot has logged in!");
 		}

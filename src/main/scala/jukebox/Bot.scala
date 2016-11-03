@@ -278,8 +278,8 @@ object Bot extends App {
             messageSender.reply(msg, "```\n" + helpString.toString + "```")
         })
 
-
-      def handle(e) = Future { //process all events in the main thread, so that no regard to memory cohesion has to be paid
+      
+      def handle(e: Event) = Future { //process all events in the main thread, so that no regard to memory cohesion has to be paid
         try {
 
           e match {
@@ -369,7 +369,7 @@ object Bot extends App {
     val hours = if (seconds >= 3600) (seconds / 3600) + ":" else ""
     f"${hours}${(seconds % 3600) / 60}%02d:${seconds % 60}%02d"
   }
-
+  
   val connectionChecker = new Thread("Network checker") {
     import scala.sys.process._
     import java.net._

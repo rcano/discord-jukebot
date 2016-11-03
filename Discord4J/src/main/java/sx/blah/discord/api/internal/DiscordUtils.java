@@ -2,7 +2,6 @@ package sx.blah.discord.api.internal;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import sx.blah.discord.Discord4J;
 import sx.blah.discord.api.IDiscordClient;
@@ -22,7 +21,10 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -187,6 +189,7 @@ public class DiscordUtils {
 			guild.setAFKChannel(json.afk_channel_id);
 			guild.setAfkTimeout(json.afk_timeout);
 			guild.setRegion(json.region);
+			guild.setVerificationLevel(json.verification_level);
 
 			List<IRole> newRoles = new ArrayList<>();
 			for (RoleObject roleResponse : json.roles) {
@@ -204,7 +207,7 @@ public class DiscordUtils {
 			}
 		} else {
 			guild = new Guild(shard, json.name, json.id, json.icon, json.owner_id, json.afk_channel_id,
-					json.afk_timeout, json.region);
+					json.afk_timeout, json.region, json.verification_level);
 
 			if (json.roles != null)
 				for (RoleObject roleResponse : json.roles) {
@@ -229,7 +232,7 @@ public class DiscordUtils {
 						if (status.getType() == Status.StatusType.STREAM) {
 							user.setPresence(Presences.STREAMING);
 						} else {
-							user.setPresence(Presences.valueOf((presence.status).toUpperCase()));
+							user.setPresence(Presences.get(presence.status));
 						}
 						user.setStatus(status);
 					}
@@ -253,7 +256,25 @@ public class DiscordUtils {
 			}
 		}
 
+		guild.getEmojis().clear();
+		for (EmojiObject obj : json.emojis) {
+			guild.getEmojis().add(DiscordUtils.getEmojiFromJSON(guild, obj));
+		}
+
 		return guild;
+	}
+
+	/**
+	 * Creates an IEmoji object from the EmojiObj json data.
+	 *
+	 * @param guild The guild.
+	 * @param json  The json object data.
+	 * @return
+	 */
+	public static IEmoji getEmojiFromJSON(IGuild guild, EmojiObject json) {
+		Emoji emoji = new Emoji(guild, json.id, json.name, json.require_colons, json.managed, json.roles);
+
+		return emoji;
 	}
 
 	/**

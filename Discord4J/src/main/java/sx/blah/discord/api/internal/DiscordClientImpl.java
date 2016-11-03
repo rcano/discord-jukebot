@@ -7,6 +7,8 @@ import sx.blah.discord.api.IShard;
 import sx.blah.discord.api.events.EventDispatcher;
 import sx.blah.discord.api.internal.json.objects.UserObject;
 import sx.blah.discord.api.internal.json.objects.VoiceRegionObject;
+import sx.blah.discord.handle.impl.events.ReadyEvent;
+import sx.blah.discord.handle.impl.events.ShardReadyEvent;
 import sx.blah.discord.handle.impl.obj.User;
 import sx.blah.discord.handle.obj.*;
 import sx.blah.discord.api.internal.json.requests.*;
@@ -266,24 +268,46 @@ public final class DiscordClientImpl implements IDiscordClient {
 
 	@Override
 	public void login() {
-		ScheduledExecutorService loginHandler = Executors.newSingleThreadScheduledExecutor();
+		if (!getShards().isEmpty()) {
+			Discord4J.LOGGER.error(LogMarkers.API, "Attempt to login client more than once.");
+			return;
+		}
 
 		String gateway = obtainGateway();
-		for (int i = 0; i < shardCount; i++) {
-			ShardImpl shard = new ShardImpl(this, gateway, new int[] {i, shardCount}, isDaemon);
-			getShards().add(i, shard);
-			loginHandler.schedule(() -> {
-				try {
-					shard.login();
-				} catch (DiscordException e) {
-					e.printStackTrace();
+		new RequestBuilder(this).setAsync(true).doAction(() -> {
+			for (int i = 0; i < shardCount; i++) {
+				final int shardNum = i;
+				ShardImpl shard = new ShardImpl(this, gateway, new int[] {shardNum, shardCount}, isDaemon);
+				getShards().add(shardNum, shard);
+				shard.login();
+
+				getDispatcher().waitFor((ShardReadyEvent e) -> true, 10, TimeUnit.SECONDS, () ->
+					Discord4J.LOGGER.warn(LogMarkers.API, "Shard {} failed to login.", shardNum)
+				);
+
+				if (i != shardCount - 1) { // all but last
+					Discord4J.LOGGER.trace(LogMarkers.API, "Sleeping for login ratelimit.");
+					Thread.sleep(5000);
 				}
-			}, i * 7, TimeUnit.SECONDS); // Login ratelimit
+			}
+			getDispatcher().dispatch(new ReadyEvent());
+			return true;
+		}).build();
+
+		if (!isDaemon) {
+			new Timer().scheduleAtFixedRate(new TimerTask() {
+				@Override
+				public void run() {
+					if (getShards().stream().anyMatch(IShard::isLoggedIn)) {
+						this.cancel();
+					}
+				}
+			}, 0, 1000);
 		}
 	}
 
 	@Override
-	public void logout() throws DiscordException, RateLimitException {
+	public void logout() throws DiscordException {
 		for (IShard shard : getShards()) {
 			shard.logout();
 		}
@@ -292,12 +316,12 @@ public final class DiscordClientImpl implements IDiscordClient {
 
 	@Override
 	public boolean isLoggedIn() {
-		return getShards().stream().map(IShard::isLoggedIn).allMatch(bool -> bool);
+		return getShards().size() == getShardCount() && getShards().stream().map(IShard::isLoggedIn).allMatch(bool -> bool);
 	}
 
 	@Override
 	public boolean isReady() {
-		return getShards().stream().map(IShard::isReady).allMatch(bool -> bool);
+		return getShards().size() == getShardCount() && getShards().stream().map(IShard::isReady).allMatch(bool -> bool);
 	}
 
 	@Override
