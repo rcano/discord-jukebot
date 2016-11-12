@@ -38,17 +38,17 @@ object YoutubeProvider {
         val alreadyCompleted = new AtomicInteger()
 
         val urlsBeingProcessed = urls.zipWithIndex map {
-          case (u, idx) => 
+          case (u, idx) =>
             if (cancel.isSet) Future.failed(CancelledException)
             Future {
-              if (cancel.isSet)//need to check again here, because the future is scheduled and handled much later
+              if (cancel.isSet) //need to check again here, because the future is scheduled and handled much later
                 throw CancelledException
 
               runCommand("youtube-dl --no-call-home -q -j --flat-playlist --".split(" ").toSeq :+ u) match {
                 case (Seq(), errorLog) =>
                   errorReporter(s"Failed processing $u\n" + errorLog.mkString)
                   None
-                case (Seq(line), _) => 
+                case (Seq(line), _) =>
                   progressReporter(alreadyCompleted.incrementAndGet)
                   Some(idx -> extractSongMetadata(parseJson(line)))
               }
@@ -56,7 +56,7 @@ object YoutubeProvider {
         }
 
         val process = Future.sequence(urlsBeingProcessed).map(_.flatten.sortBy(_._1).map(_._2)).andThen { case _ => commandExecutor.shutdown() }
-        (playlist.size,cancel, process)
+        (playlist.size, cancel, process)
     }
   }
 
@@ -68,16 +68,16 @@ object YoutubeProvider {
     println("running command: " + cmd)
     Process(cmd, Some(shmTmpDir.toFile)).!(ProcessLogger(l => errorLog :+= l)) match {
       case 0 => Try {
-          val song = Files.list(shmTmpDir).iterator.asScala.filter { p => 
-            if (p.getFileName.toString.matches(".+Frag\\d+$")) { //get rid of whatever trash youtube-dl left behind
-              Files.delete(p)
-              false
-            } else true
-          }.next
-          val fileSize = Files.size(song)
-          println(f"Song's size ${fileSize / 1024f / 1024}%.2fMB")
-          song
-        }
+        val song = Files.list(shmTmpDir).iterator.asScala.filter { p =>
+          if (p.getFileName.toString.matches(".+Frag\\d+$")) { //get rid of whatever trash youtube-dl left behind
+            Files.delete(p)
+            false
+          } else true
+        }.next
+        val fileSize = Files.size(song)
+        println(f"Song's size ${fileSize / 1024f / 1024}%.2fMB")
+        song
+      }
       case other => scala.util.Failure(new Exception(s"exit value $other. " + errorLog.mkString))
     }
   }
@@ -91,9 +91,11 @@ object YoutubeProvider {
   private implicit val jsonFormats = DefaultFormats
   private def extractSongMetadata(jv: JValue) = {
     val json = jv.dyn
-    SongMetadata(java.net.URLDecoder.decode(json.fulltitle.extract, "utf-8"),
-                 json.duration.extract[Option[String]].map(_.toInt),
-                 json.webpage_url.extract)
+    SongMetadata(
+      java.net.URLDecoder.decode(json.fulltitle.extract, "utf-8"),
+      json.duration.extract[Option[String]].map(_.toInt),
+      json.webpage_url.extract
+    )
   }
 
   case object CancelledException extends Exception

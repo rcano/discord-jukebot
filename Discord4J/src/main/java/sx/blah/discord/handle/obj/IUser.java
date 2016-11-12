@@ -1,8 +1,8 @@
 package sx.blah.discord.handle.obj;
 
 import sx.blah.discord.util.DiscordException;
-import sx.blah.discord.util.RateLimitException;
 import sx.blah.discord.util.MissingPermissionsException;
+import sx.blah.discord.util.RateLimitException;
 
 import java.util.List;
 import java.util.Optional;
@@ -182,5 +182,4 @@ public interface IUser extends IDiscordObject<IUser> {
 	 * @throws MissingPermissionsException
 	 */
 	void removeRole(IRole role) throws MissingPermissionsException, RateLimitException, DiscordException;
-
 }

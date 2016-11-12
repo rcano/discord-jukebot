@@ -1,7 +1,6 @@
 package sx.blah.discord.handle.impl.obj;
 
 import org.apache.http.entity.StringEntity;
-import org.apache.http.message.BasicNameValuePair;
 import sx.blah.discord.Discord4J;
 import sx.blah.discord.api.IDiscordClient;
 import sx.blah.discord.api.IShard;
@@ -410,4 +409,5 @@ public class User implements IUser {
 		roleList.remove(role);
 		guild.editUserRoles(this, roleList.toArray(new IRole[roleList.size()]));
 	}
+
 }

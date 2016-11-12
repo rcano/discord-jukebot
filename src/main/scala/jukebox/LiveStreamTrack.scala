@@ -37,7 +37,6 @@ object LiveStreamTrack {
     }
   }
 
-
   def apply(encoder: String, song: SongMetadata, livestreamerOptions: Option[String], downloadErrorReporter: Throwable => Unit): AudioPlayer.Track = {
     val opts = livestreamerOptions.getOrElse("")
     val cmd = s"""livestreamer --hls-segment-attempts 1 --hls-segment-threads 5 -O $opts '${song.origin}' worst | ffmpeg -i - -f mp3 -ac 2 -ar 48000 -map a -"""

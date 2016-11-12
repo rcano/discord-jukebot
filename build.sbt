@@ -2,20 +2,24 @@ name := "discord-jukebox"
 
 version := "0.1"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.12.0"
 
 fork := true
 
-scalacOptions ++= Seq("-deprecation", "-feature", "-Yinfer-argument-types", "-Xlint")
+scalacOptions ++= Seq("-deprecation", "-feature", "-Yinfer-argument-types", "-Ypartial-unification", "-Xlint", "-opt:_", "-opt-warnings:_")
 
 libraryDependencies ++= Seq(
   //"com.github.austinv11" % "Discord4j" % "2.6.1",
   //"com.github.austinv11" % "Discord4j" % "websocket-rewrite-SNAPSHOT",
-  "org.json4s" %% "json4s-native" % "3.4.1",
-  "com.github.scopt" %% "scopt" % "3.5.0"
+  "org.json4s" %% "json4s-native" % "3.5.0",
+  "com.github.scopt" %% "scopt" % "3.5.0",
+  "org.asynchttpclient" % "async-http-client" % "2.0.21",
+  "com.beachape" %% "enumeratum" % "1.4.17"
 )
 enablePlugins(JavaAppPackaging)
 mainClass in Compile := Some("jukebox.Bot")
+
+scalariformPreferences := scalariformPreferences.value.setPreference(scalariform.formatter.preferences.SpacesAroundMultiImports, false)
 
 resolvers += "jcenter" at "http://jcenter.bintray.com"
 resolvers += "jitpack.io" at "https://jitpack.io"
@@ -28,6 +32,7 @@ lazy val Discord4J = project.settings(
   version := "ws-rewrite",
   publishArtifact in (Compile, packageDoc) := false,
   crossPaths := false,
+  resolvers += "jcenter" at "http://jcenter.bintray.com",
   libraryDependencies ++= Seq(
     "org.slf4j" % "slf4j-api" % "1.7.21",
     "org.apache.httpcomponents" % "httpcore" % "4.4.5",

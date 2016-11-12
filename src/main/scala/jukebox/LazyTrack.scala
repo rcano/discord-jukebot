@@ -35,11 +35,11 @@ object LazyTrack {
       println(Console.CYAN + "Getting song ready " + song + Console.RESET)
       val file = YoutubeProvider.download(song).get
 
-      val process = new ProcessBuilder(Array(s"$encoder", "-i", file.toString, "-f", "mp3", "-ac", "2", "-ar", "48000",  "-map",  "a",  "-"):_*).
-      redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
-//      redirectError(ProcessBuilder.Redirect.INHERIT). //stderr must be consumed, or ffmpeg won't emit output
-      start()
-      val inputStream = new BufferedInputStream(process.getInputStream, 1024 * 10) {  //need some buffer in order to be able to reset, which AudioSystem will attempt
+      val process = new ProcessBuilder(Array(s"$encoder", "-i", file.toString, "-f", "mp3", "-ac", "2", "-ar", "48000", "-map", "a", "-"): _*).
+        redirectError(new File("/dev/null")). //stderr must be consumed, or ffmpeg won't emit output
+        //      redirectError(ProcessBuilder.Redirect.INHERIT). //stderr must be consumed, or ffmpeg won't emit output
+        start()
+      val inputStream = new BufferedInputStream(process.getInputStream, 1024 * 10) { //need some buffer in order to be able to reset, which AudioSystem will attempt
         override def close = {
           super.close()
           if (process.isAlive) process.destroy()
