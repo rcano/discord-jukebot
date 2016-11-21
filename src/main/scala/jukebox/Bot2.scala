@@ -131,10 +131,7 @@ object Bot2 extends App {
       _tracks.clear()
       _tracks ++= shuffled
     }
-    def skip(): Unit = {
-      Option(ap.getPlayingTrack) foreach (_.stop())
-      _tracks.headOption.fold(ap.playTrack(null))(ap.playTrack)
-    }
+    def skip(): Unit = _tracks.headOption.fold(ap.playTrack(null))(ap.playTrack)
     def size = _tracks.size
     def onEvent(evt) = evt match {
       case evt: TrackStartEvent =>
@@ -142,7 +139,8 @@ object Bot2 extends App {
         updatePlayingTrack()
 
       case evt: TrackEndEvent =>
-        _tracks.headOption.fold(updatePlayingTrack())(ap.playTrack)
+        if (evt.endReason.mayStartNext) _tracks.headOption.fold(updatePlayingTrack())(ap.playTrack)
+        else updatePlayingTrack()
       case evt: TrackExceptionEvent =>
         DiscordHandler.generalChannel foreach (c => messageSender.send(c.id, "Failed processing track " + evt.track.getInfo.title + " due to " + evt.exception))
         _tracks -= evt.track
@@ -213,10 +211,9 @@ object Bot2 extends App {
       case regex"""(\d+)$num""" =>
         if (Playlist.size == 0) messageSender.reply(msg, "There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
         else {
-          val tracks = Playlist.tracks
-          val dest = math.min(num.toInt, tracks.size)
-          val song = tracks(dest)
-          (1 until dest) foreach (i => Playlist.remove(tracks(i)))
+          val dest = math.min(num.toInt, Playlist.size)
+          val song = Playlist.tracks(dest)
+          (0 until dest) foreach (i => Playlist.remove(Playlist.tracks(0)))
           Playlist.skip()
           messageSender.reply(msg, "_skipping to " + song.getInfo.title + "_")
         }
@@ -271,7 +268,7 @@ object Bot2 extends App {
           track.getInfo.title
         }
         messageSender.reply(msg, "_removed:_")
-        removedTracks foreach (t => "_" + t + "_")
+        removedTracks foreach (t => messageSender.reply(msg, "_" + t + "_"))
       }
 
     case regex"""remove range .*""" => messageSender.reply(msg, "I'm sorry, remove range only accepts a pair of naturals")
