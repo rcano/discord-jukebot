@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
 private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
   import DiscordClient._
 
-  protected def startShard(gw: String, shard: Int, totalShards: Int, lastSession: Option[LastSessionState] = None): Future[GatewayConnection] = {
+  protected def startShard(gw: String, shard: Int, totalShards: Int, lastSession: Option[LastSessionState] = None): Future[GatewayConnection] = try {
     val res = new GatewayConnectionImpl(gw, shard, totalShards, lastSession)
     val websocketFuture = ahc.prepareGet(gw).execute(new ws.WebSocketUpgradeHandler(Arrays.asList(res)))
     val ready = Promise[GatewayConnection]()
@@ -31,6 +31,8 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       case (_, ex) => ready.failure(ex); ()
     }
     ready.future
+  } catch {
+    case NonFatal(ex) => Future.failed(ex)
   }
 
   protected case class SessionData(id: String, gatewayProtocol: Int)
@@ -235,11 +237,16 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       onClose(websocket)
       listener.onReconnecting(this, reason)
       val reconnectInstance = if (session.isDefined) 0 else lastSession.map(_.connectionAttempt + 1).getOrElse(0)
-
-      if (reconnectInstance > 0)
-        timer.newTimeout(_ => startShard(gateway, shardNumber, totalShards, session.map(s => LastSessionState(s, seq, reconnectInstance))), 5, SECONDS)
-      else
-        startShard(gateway, shardNumber, totalShards, session.map(s => LastSessionState(s, seq, reconnectInstance)))
+      val newLastSession = session.map(s => LastSessionState(s, seq, reconnectInstance))
+      def reconnectAttempt(duration: FiniteDuration): Unit = {
+        timer.newTimeout(
+          _ =>
+          startShard(gateway, shardNumber, totalShards, newLastSession).failed.foreach(_ => reconnectAttempt(5.seconds)),
+          duration.length, duration.unit
+        )
+      }
+      if (reconnectInstance > 0) reconnectAttempt(5.seconds)
+      else reconnectAttempt(0.seconds)
     }
   }
 }
