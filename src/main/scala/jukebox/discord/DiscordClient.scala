@@ -2,6 +2,7 @@ package jukebox
 package discord
 
 import io.netty.util.HashedWheelTimer
+import java.nio.charset.Charset
 import java.time.Instant
 import java.util.Arrays
 import java.util.concurrent.{Executors, ThreadFactory}
@@ -81,7 +82,7 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
     private object endpoint extends DiscordEndpoint
     def createMessage(channelId: String, message: String, embed: Embed = null, tts: Boolean = false): Future[Message] = {
       val body = renderJson(("content" -> message) ~ ("nonce" -> (null: String)) ~ ("tts" -> tts) ~ ("embed" -> Json.decompose(embed)))
-      val req = ahc.preparePost(CHANNELS + channelId + "/messages").setHeaders(baseHeaders).addHeader("Content-Type", "application/json").setBody(body)
+      val req = ahc.preparePost(CHANNELS + channelId + "/messages").setHeaders(baseHeaders).addHeader("Content-Type", "application/json").setCharset(Charset.forName("utf-8")).setBody(body)
 
       request(req)(asDynJson.andThen(jv => Json.extract[Message](jv.jv)))
     }
