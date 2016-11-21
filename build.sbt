@@ -19,7 +19,8 @@ libraryDependencies ++= Seq(
   "com.sedmelluq" % "lavaplayer" % "1.1.22"
 )
 enablePlugins(JavaAppPackaging)
-mainClass in Compile := Some("jukebox.Bot")
+mainClass in Compile := Some("jukebox.Bot2")
+javaOptions in Universal ++= Seq("-J-Xmx30m", "-J-Xss1m")
 
 scalariformPreferences := scalariformPreferences.value.setPreference(scalariform.formatter.preferences.SpacesAroundMultiImports, false)
 
