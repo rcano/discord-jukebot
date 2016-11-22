@@ -1,5 +1,6 @@
 package sx.blah.discord.api.internal;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import sx.blah.discord.Discord4J;
 import sx.blah.discord.api.internal.json.event.*;
@@ -9,9 +10,7 @@ import sx.blah.discord.api.internal.json.responses.voice.VoiceUpdateResponse;
 import sx.blah.discord.handle.impl.events.*;
 import sx.blah.discord.handle.impl.obj.*;
 import sx.blah.discord.handle.obj.*;
-import sx.blah.discord.util.LogMarkers;
-import sx.blah.discord.util.MessageList;
-import sx.blah.discord.util.RequestBuilder;
+import sx.blah.discord.util.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,12 +21,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class DispatchHandler {
+import static sx.blah.discord.api.internal.DiscordUtils.GSON;
+
+class DispatchHandler {
 	private DiscordWS ws;
 	private ShardImpl shard;
 	private DiscordClientImpl client;
 
-	protected DispatchHandler(DiscordWS ws, ShardImpl shard) {
+	DispatchHandler(DiscordWS ws, ShardImpl shard) {
 		this.ws = ws;
 		this.shard = shard;
 		this.client = (DiscordClientImpl) shard.getClient();
@@ -35,39 +36,41 @@ public class DispatchHandler {
 
 	public void handle(JsonObject event) {
 		String type = event.get("t").getAsString();
+		JsonElement json = event.get("d");
 		switch (type) {
-			case "RESUMED": Discord4J.LOGGER.debug(LogMarkers.WEBSOCKET, "Session resumed on shard " + shard.getInfo()[0]); break;
-			case "READY": ready(DiscordUtils.GSON.fromJson(event.get("d"), ReadyResponse.class)); break;
-			case "MESSAGE_CREATE": messageCreate(DiscordUtils.GSON.fromJson(event.get("d"), MessageObject.class)); break;
-			case "TYPING_START": typingStart(DiscordUtils.GSON.fromJson(event.get("d"), TypingEventResponse.class)); break;
-			case "GUILD_CREATE": guildCreate(DiscordUtils.GSON.fromJson(event.get("d"), GuildObject.class)); break;
-			case "GUILD_MEMBER_ADD": guildMemberAdd(DiscordUtils.GSON.fromJson(event.get("d"), GuildMemberAddEventResponse.class)); break;
-			case "GUILD_MEMBER_REMOVE": guildMemberRemove(DiscordUtils.GSON.fromJson(event.get("d"), GuildMemberRemoveEventResponse.class)); break;
-			case "GUILD_MEMBER_UPDATE": guildMemberUpdate(DiscordUtils.GSON.fromJson(event.get("d"), GuildMemberUpdateEventResponse.class)); break;
-			case "MESSAGE_UPDATE": messageUpdate(DiscordUtils.GSON.fromJson(event.get("d"), MessageObject.class)); break;
-			case "MESSAGE_DELETE": messageDelete(DiscordUtils.GSON.fromJson(event.get("d"), MessageDeleteEventResponse.class)); break;
-			case "MESSAGE_DELETE_BULK": messageDeleteBulk(DiscordUtils.GSON.fromJson(event.get("d"), MessageDeleteBulkEventResponse.class)); break;
-			case "PRESENCE_UPDATE": presenceUpdate(DiscordUtils.GSON.fromJson(event.get("d"), PresenceUpdateEventResponse.class)); break;
-			case "GUILD_DELETE": guildDelete(DiscordUtils.GSON.fromJson(event.get("d"), GuildObject.class)); break;
-			case "CHANNEL_CREATE": channelCreate(event.get("d").getAsJsonObject()); break;
-			case "CHANNEL_DELETE": channelDelete(DiscordUtils.GSON.fromJson(event.get("d"), ChannelObject.class)); break;
+			case "RESUMED": resumed(); break;
+			case "READY": ready(GSON.fromJson(json, ReadyResponse.class)); break;
+			case "MESSAGE_CREATE": messageCreate(GSON.fromJson(json, MessageObject.class)); break;
+			case "TYPING_START": typingStart(GSON.fromJson(json, TypingEventResponse.class)); break;
+			case "GUILD_CREATE": guildCreate(GSON.fromJson(json, GuildObject.class)); break;
+			case "GUILD_MEMBER_ADD": guildMemberAdd(GSON.fromJson(json, GuildMemberAddEventResponse.class)); break;
+			case "GUILD_MEMBER_REMOVE": guildMemberRemove(GSON.fromJson(json, GuildMemberRemoveEventResponse.class)); break;
+			case "GUILD_MEMBER_UPDATE": guildMemberUpdate(GSON.fromJson(json, GuildMemberUpdateEventResponse.class)); break;
+			case "MESSAGE_UPDATE": messageUpdate(GSON.fromJson(json, MessageObject.class)); break;
+			case "MESSAGE_DELETE": messageDelete(GSON.fromJson(json, MessageDeleteEventResponse.class)); break;
+			case "MESSAGE_DELETE_BULK": messageDeleteBulk(GSON.fromJson(json, MessageDeleteBulkEventResponse.class)); break;
+			case "PRESENCE_UPDATE": presenceUpdate(GSON.fromJson(json, PresenceUpdateEventResponse.class)); break;
+			case "GUILD_DELETE": guildDelete(GSON.fromJson(json, GuildObject.class)); break;
+			case "CHANNEL_CREATE": channelCreate(json.getAsJsonObject()); break;
+			case "CHANNEL_DELETE": channelDelete(GSON.fromJson(json, ChannelObject.class)); break;
 			case "CHANNEL_PINS_UPDATE": /* Implemented in MESSAGE_UPDATE. Ignored */ break;
-			case "USER_UPDATE": userUpdate(DiscordUtils.GSON.fromJson(event.get("d"), UserUpdateEventResponse.class)); break;
-			case "CHANNEL_UPDATE": channelUpdate(DiscordUtils.GSON.fromJson(event.get("d"), ChannelObject.class)); break;
-			case "GUILD_MEMBERS_CHUNK": guildMembersChunk(DiscordUtils.GSON.fromJson(event.get("d"), GuildMemberChunkEventResponse.class)); break;
-			case "GUILD_UPDATE": guildUpdate(DiscordUtils.GSON.fromJson(event.get("d"), GuildObject.class)); break;
-			case "GUILD_ROLE_CREATE": guildRoleCreate(DiscordUtils.GSON.fromJson(event.get("d"), GuildRoleEventResponse.class)); break;
-			case "GUILD_ROLE_UPDATE": guildRoleUpdate(DiscordUtils.GSON.fromJson(event.get("d"), GuildRoleEventResponse.class)); break;
-			case "GUILD_ROLE_DELETE": guildRoleDelete(DiscordUtils.GSON.fromJson(event.get("d"), GuildRoleDeleteEventResponse.class)); break;
-			case "GUILD_BAN_ADD": guildBanAdd(DiscordUtils.GSON.fromJson(event.get("d"), GuildBanEventResponse.class)); break;
-			case "GUILD_BAN_REMOVE": guildBanRemove(DiscordUtils.GSON.fromJson(event.get("d"), GuildBanEventResponse.class)); break;
-			case "GUILD_EMOJIS_UPDATE": guildEmojisUpdate(DiscordUtils.GSON.fromJson(event.get("d"), GuildEmojiUpdateResponse.class)); break;
+			case "USER_UPDATE": userUpdate(GSON.fromJson(json, UserUpdateEventResponse.class)); break;
+			case "CHANNEL_UPDATE": channelUpdate(GSON.fromJson(json, ChannelObject.class)); break;
+			case "GUILD_MEMBERS_CHUNK": guildMembersChunk(GSON.fromJson(json, GuildMemberChunkEventResponse.class)); break;
+			case "GUILD_UPDATE": guildUpdate(GSON.fromJson(json, GuildObject.class)); break;
+			case "GUILD_ROLE_CREATE": guildRoleCreate(GSON.fromJson(json, GuildRoleEventResponse.class)); break;
+			case "GUILD_ROLE_UPDATE": guildRoleUpdate(GSON.fromJson(json, GuildRoleEventResponse.class)); break;
+			case "GUILD_ROLE_DELETE": guildRoleDelete(GSON.fromJson(json, GuildRoleDeleteEventResponse.class)); break;
+			case "GUILD_BAN_ADD": guildBanAdd(GSON.fromJson(json, GuildBanEventResponse.class)); break;
+			case "GUILD_BAN_REMOVE": guildBanRemove(GSON.fromJson(json, GuildBanEventResponse.class)); break;
+			case "GUILD_EMOJIS_UPDATE": guildEmojisUpdate(GSON.fromJson(json, GuildEmojiUpdateResponse.class)); break;
 			case "GUILD_INTEGRATIONS_UPDATE": /* TODO: Impl Guild integrations */ break;
-			case "VOICE_STATE_UPDATE": voiceStateUpdate(DiscordUtils.GSON.fromJson(event.get("d"), VoiceStateObject.class)); break;
-			case "VOICE_SERVER_UPDATE": voiceServerUpdate(DiscordUtils.GSON.fromJson(event.get("d"), VoiceUpdateResponse.class)); break;
-			case "MESSAGE_REACTION_ADD": reactionAdd(DiscordUtils.GSON.fromJson(event.get("d"), ReactionEventResponse.class)); break;
-			case "MESSAGE_REACTION_REMOVE": reactionRemove(DiscordUtils.GSON.fromJson(event.get("d"), ReactionEventResponse.class)); break;
+			case "VOICE_STATE_UPDATE": voiceStateUpdate(GSON.fromJson(json, VoiceStateObject.class)); break;
+			case "VOICE_SERVER_UPDATE": voiceServerUpdate(GSON.fromJson(json, VoiceUpdateResponse.class)); break;
+			case "MESSAGE_REACTION_ADD": reactionAdd(GSON.fromJson(json, ReactionEventResponse.class)); break;
+			case "MESSAGE_REACTION_REMOVE": reactionRemove(GSON.fromJson(json, ReactionEventResponse.class)); break;
 			case "MESSAGE_REACTION_REMOVE_ALL": /* REMOVE_ALL is 204 empty but REACTION_REMOVE is sent anyway */ break;
+			case "WEBHOOKS_UPDATE": webhookUpdate(GSON.fromJson(json, WebhookObject.class)); break;
 
 			default:
 				Discord4J.LOGGER.warn(LogMarkers.WEBSOCKET, "Unknown message received: {}, REPORT THIS TO THE DISCORD4J DEV!", type);
@@ -75,6 +78,8 @@ public class DispatchHandler {
 	}
 
 	private void ready(ReadyResponse ready) {
+		Discord4J.LOGGER.info(LogMarkers.WEBSOCKET, "Connected to Discord Gateway v{}. Receiving {} guilds.", ready.v, ready.guilds.length);
+
 		ws.state = DiscordWS.State.READY;
 		ws.hasReceivedReady = true; // Websocket received actual ready event
 		client.getDispatcher().dispatch(new LoginEvent(shard));
@@ -114,6 +119,11 @@ public class DispatchHandler {
 		}).execute();
 	}
 
+	private void resumed() {
+		Discord4J.LOGGER.info(LogMarkers.WEBSOCKET, "Session resumed on shard " + shard.getInfo()[0]);
+		client.getDispatcher().dispatch(new ResumedEvent(shard));
+	}
+
 	private void messageCreate(MessageObject json) {
 		boolean mentioned = json.mention_everyone;
 
@@ -144,17 +154,10 @@ public class DispatchHandler {
 				Discord4J.LOGGER.debug(LogMarkers.EVENTS, "Message from: {} ({}) in channel ID {}: {}", message.getAuthor().getName(),
 						json.author.id, json.channel_id, json.content);
 
-				List<String> invites = DiscordUtils.getInviteCodesFromMessage(json.content);
-				if (invites.size() > 0) {
-					String[] inviteCodes = invites.toArray(new String[invites.size()]);
-					Discord4J.LOGGER.debug(LogMarkers.EVENTS, "Received invite codes \"{}\"", (Object) inviteCodes);
-					List<IInvite> inviteObjects = new ArrayList<>();
-					for (int i = 0; i < inviteCodes.length; i++) {
-						IInvite invite = client.getInviteForCode(inviteCodes[i]);
-						if (invite != null)
-							inviteObjects.add(invite);
-					}
-					client.dispatcher.dispatch(new InviteReceivedEvent(inviteObjects.toArray(new IInvite[inviteObjects.size()]), message));
+				List<String> inviteCodes = DiscordUtils.getInviteCodesFromMessage(json.content);
+				if (!inviteCodes.isEmpty()) {
+					List<IInvite> invites = inviteCodes.stream().map(s -> client.getInviteForCode(s)).collect(Collectors.toList());
+					client.getDispatcher().dispatch(new InviteReceivedEvent(invites.toArray(new IInvite[invites.size()]), message));
 				}
 
 				if (mentioned) {
@@ -198,6 +201,7 @@ public class DispatchHandler {
 
 		Guild guild = (Guild) DiscordUtils.getGuildFromJSON(shard, json);
 		shard.guildList.add(guild);
+		guild.loadWebhooks();
 		client.dispatcher.dispatch(new GuildCreateEvent(guild));
 		Discord4J.LOGGER.debug(LogMarkers.EVENTS, "New guild has been created/joined! \"{}\" with ID {} on shard {}.", guild.getName(), guild.getID(), shard.getInfo()[0]);
 	}
@@ -258,6 +262,9 @@ public class DispatchHandler {
 				user.addRole(guild.getID(), guild.getEveryoneRole());
 
 				client.dispatcher.dispatch(new UserRoleUpdateEvent(oldRoles, user.getRolesForGuild(guild), user, guild));
+
+				if (user.equals(client.getOurUser()))
+					guild.loadWebhooks();
 			}
 
 			if (!user.getNicknameForGuild(guild).equals(Optional.ofNullable(event.nick))) {
@@ -301,13 +308,13 @@ public class DispatchHandler {
 		Channel channel = (Channel) client.getChannelByID(channelID);
 
 		if (channel != null) {
-			IMessage message = channel.getMessageByID(id);
+			Message message = (Message) channel.getMessageByID(id);
 			if (message != null) {
 				if (message.isPinned()) {
-					((Message) message).setPinned(false); //For consistency with the event
+					message.setPinned(false); //For consistency with the event
 					client.dispatcher.dispatch(new MessageUnpinEvent(message));
 				}
-
+				message.setDeleted(true);
 				client.dispatcher.dispatch(new MessageDeleteEvent(message));
 			}
 		}
@@ -365,7 +372,7 @@ public class DispatchHandler {
 		boolean isPrivate = json.get("is_private").getAsBoolean();
 
 		if (isPrivate) { // PM channel.
-			PrivateChannelObject event = DiscordUtils.GSON.fromJson(json, PrivateChannelObject.class);
+			PrivateChannelObject event = GSON.fromJson(json, PrivateChannelObject.class);
 			String id = event.id;
 			boolean contained = false;
 			for (IPrivateChannel privateChannel : shard.privateChannels) {
@@ -379,7 +386,7 @@ public class DispatchHandler {
 			shard.privateChannels.add(DiscordUtils.getPrivateChannelFromJSON(shard, event));
 
 		} else { // Regular channel.
-			ChannelObject event = DiscordUtils.GSON.fromJson(json, ChannelObject.class);
+			ChannelObject event = GSON.fromJson(json, ChannelObject.class);
 			String type = event.type;
 			Guild guild = (Guild) client.getGuildByID(event.guild_id);
 			if (guild != null) {
@@ -404,7 +411,6 @@ public class DispatchHandler {
 					channel.getGuild().getChannels().remove(channel);
 				else
 					shard.privateChannels.remove(channel);
-
 				client.dispatcher.dispatch(new ChannelDeleteEvent(channel));
 			}
 		} else if (json.type.equalsIgnoreCase("voice")) {
@@ -433,6 +439,8 @@ public class DispatchHandler {
 					IChannel oldChannel = toUpdate.copy();
 
 					toUpdate = (Channel) DiscordUtils.getChannelFromJSON(toUpdate.getGuild(), json);
+
+					toUpdate.loadWebhooks();
 
 					client.getDispatcher().dispatch(new ChannelUpdateEvent(oldChannel, toUpdate));
 				}
@@ -494,6 +502,9 @@ public class DispatchHandler {
 				IRole oldRole = toUpdate.copy();
 				toUpdate = DiscordUtils.getRoleFromJSON(guild, event.role);
 				client.dispatcher.dispatch(new RoleUpdateEvent(oldRole, toUpdate, guild));
+
+				if (guild.getRolesForUser(client.getOurUser()).contains(toUpdate))
+					((Guild) guild).loadWebhooks();
 			}
 		}
 	}
@@ -654,4 +665,9 @@ public class DispatchHandler {
 		}
 	}
 
+	private void webhookUpdate(WebhookObject event) {
+		Channel channel = (Channel) client.getChannelByID(event.channel_id);
+		if (channel != null)
+			channel.loadWebhooks();
+	}
 }
