@@ -21,7 +21,7 @@ trait StateMachine[A] extends PartialFunction[A, Unit] {
   def isDefinedAt(a: A) = curr.isDefinedAt(a)
 
   /**
-   * @returns the current transition
+   * @return the current transition
    */
   def current = curr
   /**

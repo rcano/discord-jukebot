@@ -26,8 +26,8 @@ object Bot extends App {
 
   val discordClient = new DiscordClientBuilder().withToken(clargs.discordToken).withPingTimeout(1).withTimeout(2000).login()
 
-  //  val logger = Discord4J.LOGGER.asInstanceOf[Discord4J.Discord4JLogger]
-  //  logger.setLevel(Discord4J.Discord4JLogger.Level.DEBUG)
+  val logger = Discord4J.LOGGER.asInstanceOf[Discord4J.Discord4JLogger]
+  logger.setLevel(Discord4J.Discord4JLogger.Level.DEBUG)
 
   /*
    * STATE MACHINE
@@ -295,10 +295,6 @@ object Bot extends App {
               channel.join()
             }
 
-          //            case _: DisconnectedEvent =>
-          //              println(Console.RED + "disconnected from Discord, attempting to reconnect...")
-          //              discordClient.login()
-
           /*
                * handle commands
                */
@@ -365,35 +361,6 @@ object Bot extends App {
     f"${hours}${(seconds % 3600) / 60}%02d:${seconds % 60}%02d"
   }
 
-  //  val connectionChecker = new Thread("Network checker") {
-  //    import scala.sys.process._
-  //    import java.net._
-  //    var connectedState = true
-  //    override def run = {
-  //      //check every 1000 to see if the newtork is up, if it isn't, disconnect the client and reconnect it when it gets back
-  //      while (!Thread.interrupted) {
-  //        try {
-  //          val networkUp = Seq("ping", "-n", "-c", "1", "8.8.8.8").lineStream_!.exists(_ contains "1 received")
-  //          if (networkUp) {
-  //            if (!connectedState) {
-  //              println(Console.YELLOW + "reconning the client..." + Console.RESET)
-  //              discordClient.login()
-  //              connectedState = true
-  //            }
-  //          } else if (connectedState) {
-  //            println(Console.YELLOW + "disconnecting the client on network down..." + Console.RESET)
-  //            connectedState = false
-  //            if (discordClient.isLoggedIn) discordClient.logout
-  //          }
-  //        } catch {
-  //          case e: Exception => e.printStackTrace()
-  //        }
-  //        Thread.sleep(1000)
-  //      }
-  //    }
-  //  }
-  //  connectionChecker.setDaemon(true)
-  //  connectionChecker.start()
   /**
    * make an execution context out of the main thread.
    */
