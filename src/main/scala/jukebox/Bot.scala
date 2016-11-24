@@ -26,6 +26,16 @@ object Bot extends App {
   audioPlayerManager.registerSourceManager(new LocalAudioSourceManager())
   val ap = audioPlayerManager.createPlayer()
 
+  val noData = new Array[Byte](0)
+  @volatile var nextSoundFrame: Array[Byte] = noData
+  //configure a constant 20ms frame consumer thread independent of that of the voice connection, to avoid sound getting jammer if the connection drops.
+  val audioProviderThread = new AccurateRecurrentTask(cancel => {
+    val frame = ap.provide
+    nextSoundFrame = if (frame == null) noData else frame.data
+  }, 20)
+  audioProviderThread.setName("LavaPlayer audio consumer")
+  audioProviderThread.start()
+
   object DiscordHandler extends DiscordClient.DiscordListener {
     var ourUser: User = _
     var currentGateway: DiscordClient#GatewayConnection = _
@@ -44,18 +54,24 @@ object Bot extends App {
     }
 
     override def onReconnecting(conn, reason) = println(s"reconnecting $conn because of $reason")
+    @volatile var shouldUnpauseAfterReconnection = false
     override def onConnectionOpened(conn) = {
       println(s"$conn connected")
       conn match {
         case gw: DiscordClient#GatewayConnection => currentGateway = gw
-        case vc: DiscordClient#VoiceConnection => currentVoiceConn = vc
+        case vc: DiscordClient#VoiceConnection =>
+          currentVoiceConn = vc
+          if (shouldUnpauseAfterReconnection) ap.setPaused(false)
       }
     }
     override def onConnectionClosed(conn) = {
       println(s"$conn closed")
       conn match {
         case gw: DiscordClient#GatewayConnection => currentGateway = null
-        case vc: DiscordClient#VoiceConnection => currentVoiceConn = null
+        case vc: DiscordClient#VoiceConnection =>
+          currentVoiceConn = null
+          shouldUnpauseAfterReconnection = !ap.isPaused
+          ap.setPaused(true)
       }
     }
     override def onDisconnected(conn, code, reason) = {
@@ -91,10 +107,7 @@ object Bot extends App {
         if (ourVoiceState.voiceState.channelId.isDefined) {
           println("stablishing websocket to " + ourVoiceState.voiceState.channelId.get)
           val noData = new Array[Byte](0)
-          conn.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => println("Received " + bytes.length), () => {
-            val frame = ap.provide
-            if (frame == null) noData else frame.data
-          })
+          conn.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => println("Received " + bytes.length), () => nextSoundFrame)
         }
 
       case _ =>
