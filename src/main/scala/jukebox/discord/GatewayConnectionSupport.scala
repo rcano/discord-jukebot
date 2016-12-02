@@ -241,7 +241,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       def reconnectAttempt(duration: FiniteDuration): Unit = {
         timer.newTimeout(
           _ =>
-          startShard(gateway, shardNumber, totalShards, newLastSession).failed.foreach(_ => reconnectAttempt(5.seconds)),
+            startShard(gateway, shardNumber, totalShards, newLastSession).failed.foreach(_ => reconnectAttempt(5.seconds)),
           duration.length, duration.unit
         )
       }

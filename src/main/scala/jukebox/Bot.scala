@@ -43,10 +43,16 @@ object Bot extends App {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"Sending $msg")
     }
-    override def onReconnecting(conn, reason) = println(s"reconnecting $conn because of $reason")
+    //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    //    override def undefHandler(evt) = evt match {
+    //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
+    //      case _ =>
+    //    }
 
     case class BotData(gateway: DiscordClient#GatewayConnection, info: GatewayEvents.Ready, guild: GatewayEvents.Guild, voiceConnected: Boolean) {
       val me = s"<@${info.user.id}>"
+
+      override def toString = s"BotData($gateway, $voiceConnected)"
     }
     def initState = awaitReady(true)
     def awaitReady(shouldConnectVoice: Boolean): Transition = transition {
@@ -55,6 +61,7 @@ object Bot extends App {
     def awaitGuildCreate(ready: GatewayEvents.Ready, shouldConnectVoice: Boolean) = transition {
       case GatewayEvent(conn, GatewayEvents.GuildCreate(g)) =>
         val botData = BotData(conn, ready, g, shouldConnectVoice)
+        println("just conected with " + botData)
         if (shouldConnectVoice) setupVoiceChannel(botData, c => messageHandling(botData, Some(c)))
         else messageHandling(botData, None)
     }
@@ -96,20 +103,19 @@ object Bot extends App {
     def updatePresence(status: Status): Unit = apply(UpdateStatus(status))
     def shutdown(): Unit = apply(Shutdown)
 
-    def setupVoiceChannel(
-      botData: BotData,
-      nextState: DiscordClient#VoiceConnection => Transition
-    ): Transition = {
+    def setupVoiceChannel(botData: BotData, nextState: DiscordClient#VoiceConnection => Transition): Transition = {
       botData.gateway.sendVoiceStateUpdate(botData.guild.id, None, false, true)
       botData.gateway.sendVoiceStateUpdate(botData.guild.id, botData.guild.channels.find(_.name == clargs.channel).map(_.id), false, true)
       transition {
-        case GatewayEvent(_, ourVoiceState: GatewayEvents.VoiceStateUpdate) => transition {
-          case GatewayEvent(conn, vsu: GatewayEvents.VoiceServerUpdate) =>
-            println("stablishing websocket to " + ourVoiceState.voiceState.channelId.get)
-            val noData = new Array[Byte](0)
-            conn.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => println("Received " + bytes.length), () => nextSoundFrame)
-            transition { case ConnectionOpened(conn: DiscordClient#VoiceConnection) => nextState(conn) } orElse reconnect(botData)
-        } orElse reconnect(botData)
+        case GatewayEvent(_, ourVoiceState: GatewayEvents.VoiceStateUpdate) if ourVoiceState.voiceState.channelId.isDefined =>
+          println("voice state received, waiting for voice server udpate")
+          transition {
+            case GatewayEvent(conn, vsu: GatewayEvents.VoiceServerUpdate) =>
+              println("establishing websocket to " + ourVoiceState.voiceState.channelId.get)
+              val noData = new Array[Byte](0)
+              conn.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => println("Received " + bytes.length), () => nextSoundFrame)
+              transition { case ConnectionOpened(conn: DiscordClient#VoiceConnection) => nextState(conn) } orElse reconnect(botData)
+          } orElse reconnect(botData)
       } orElse reconnect(botData)
     }
 
@@ -119,12 +125,13 @@ object Bot extends App {
         transition {
           case GatewayEvent(conn, GatewayEvents.Resumed) =>
             val newData = data.copy(gateway = conn)
+            println("resuming! new data " + newData)
             if (newData.voiceConnected) setupVoiceChannel(newData, c => messageHandling(newData, Some(c)))
             else messageHandling(newData, None)
         } orElse awaitReady(data.voiceConnected)
     }
   }
-  
+
   val discordClient = new DiscordClient(clargs.discordToken, DiscordHandlerSM)
 
   object Playlist extends AudioEventListener {

@@ -263,6 +263,7 @@ object DiscordClient {
     case class Disconnected(connection: DiscordClient#Connection, code: Int, reason: String) extends Event
     case class ConnectionError(connection: DiscordClient#Connection, error: Throwable) extends Event
 
+    override def apply(a: E): Unit = synchronized { super.apply(a) }
     private def run(evt: Event): Unit = this.orElse[Event, Unit] {
       case evt => undefHandler(evt)
     }.apply(evt)
