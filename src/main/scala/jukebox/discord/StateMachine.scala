@@ -8,12 +8,18 @@ import language.{higherKinds, existentials}
  */
 trait StateMachine[A] extends PartialFunction[A, Unit] {
 
-  case class Transition(f: PartialFunction[A, Transition]) extends PartialFunction[A, Transition] {
+  case class Transition(name: String, f: PartialFunction[A, Transition]) extends PartialFunction[A, Transition] {
     def apply(a: A) = f(a)
     def isDefinedAt(a: A) = f.isDefinedAt(a)
-    def orElse(t: Transition) = Transition(f orElse t)
+    def orElse(t: Transition) = Transition(name + "+" + t.name, f orElse t)
+
+    override def toString = name
   }
-  def transition(f: PartialFunction[A, Transition]) = Transition(f)
+  def transition(f: PartialFunction[A, Transition]) = {
+    val name = new Exception().getStackTrace.drop(3).take(1).map(caller => caller.getFileName + ":" + caller.getLineNumber).mkString("\n")
+    Transition(name, f)
+  }
+  def namedTransition(name: String)(f: PartialFunction[A, Transition]) = Transition(name, f)
 
   private[this] var curr: Transition = initState
   def initState: Transition
@@ -37,5 +43,5 @@ trait StateMachine[A] extends PartialFunction[A, Unit] {
   /**
    * Done state, which is defined for no payload
    */
-  lazy val done = Transition(PartialFunction.empty)
+  lazy val done = Transition("done", PartialFunction.empty)
 }
