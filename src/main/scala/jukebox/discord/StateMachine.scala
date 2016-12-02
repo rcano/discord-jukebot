@@ -17,7 +17,12 @@ trait StateMachine[A] extends PartialFunction[A, Unit] {
 
   private[this] var curr: Transition = initState
   def initState: Transition
-  def apply(a: A) = curr = curr(a)
+  def apply(a: A): Unit = {
+    val prev = curr
+    val newCurr = curr(a)
+    if (curr == prev) curr = newCurr //only update state if it was not updated by reentrantcy of this method
+  }
+  def applyIfDefined(a: A) = if (isDefinedAt(a)) apply(a)
   def isDefinedAt(a: A) = curr.isDefinedAt(a)
 
   /**

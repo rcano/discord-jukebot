@@ -244,4 +244,42 @@ object DiscordClient {
     def onDisconnected(connection: DiscordClient#Connection, code: Int, reason: String): Unit = {}
     def onConnectionError(connection: DiscordClient#Connection, error: Throwable): Unit = {}
   }
+
+  object DiscordListenerStateMachine {
+    sealed trait Event
+  }
+  trait DiscordListenerStateMachine[E >: DiscordListenerStateMachine.Event] extends DiscordListener with StateMachine[E] {
+    import DiscordListenerStateMachine.Event
+    case class GatewayEvent(connection: DiscordClient#GatewayConnection, event: GatewayEvents.GatewayEvent) extends Event
+    case class GatewayData(data: DynJValueSelector) extends Event
+    case class GatewayOp(connection: DiscordClient#GatewayConnection, op: discord.GatewayOp, data: DynJValueSelector) extends Event
+    case class VoiceOp(connection: DiscordClient#VoiceConnection, op: discord.VoiceOp, data: DynJValueSelector) extends Event
+    case class UnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: DynJValueSelector) extends Event
+    case class UnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: DynJValueSelector) extends Event
+    case class MessageBeingSent(connection: DiscordClient#Connection, msg: String) extends Event
+    case class Reconnecting(connection: DiscordClient#Connection, reason: ReconnectReason) extends Event
+    case class ConnectionOpened(connection: DiscordClient#Connection) extends Event
+    case class ConnectionClosed(connection: DiscordClient#Connection) extends Event
+    case class Disconnected(connection: DiscordClient#Connection, code: Int, reason: String) extends Event
+    case class ConnectionError(connection: DiscordClient#Connection, error: Throwable) extends Event
+
+    private def run(evt: Event): Unit = this.orElse[Event, Unit] {
+      case evt => undefHandler(evt)
+    }.apply(evt)
+    def undefHandler(evt: Event): Unit = {}
+
+    override def onGatewayEvent(connection) = evt => run(GatewayEvent(connection, evt))
+    override def onGatewayData(data): Unit = run(GatewayData(data))
+    override def onGatewayOp(connection, op, data): Unit = run(GatewayOp(connection, op, data))
+    override def onVoiceOp(connection, op, data): Unit = run(VoiceOp(connection, op, data))
+    override def onUnexpectedGatewayOp(connection, op, data): Unit = run(UnexpectedGatewayOp(connection, op, data))
+    override def onUnexpectedVoiceOp(connection, op, data): Unit = run(UnexpectedVoiceOp(connection, op, data))
+    override def onMessageBeingSent(connection, msg): Unit = run(MessageBeingSent(connection, msg))
+    override def onReconnecting(connection, reason): Unit = run(Reconnecting(connection, reason))
+    override def onConnectionOpened(connection): Unit = run(ConnectionOpened(connection))
+    override def onConnectionClosed(connection): Unit = run(ConnectionClosed(connection))
+    override def onDisconnected(connection, code, reason): Unit = run(Disconnected(connection, code, reason))
+    override def onConnectionError(connection, error): Unit = run(ConnectionError(connection, error))
+
+  }
 }
