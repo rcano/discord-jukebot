@@ -211,7 +211,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
           val prevBehaviour = stateMachine.current
 
           val timeout = timer.newTimeout({ timeout =>
-            if (!timeout.isCancelled) {
+            if (!timeout.isCancelled && isActive) {
               listener.onConnectionError(this, new RuntimeException("Did not receive a HeartbeatAck in 5 seconds!") with NoStackTrace)
               reconnect(HeartbeatMissed)
             }
