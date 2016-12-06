@@ -192,7 +192,7 @@ object Bot extends App {
     case "list" | "list full" if Playlist.size == 0 && ap.getPlayingTrack == null => messageSender.reply(msg, "Nothing in the queue")
     case cmd @ ("list" | "list full") =>
       val full = cmd.endsWith("full")
-      val songs = Playlist.tracks.keys ++ Option(ap.getPlayingTrack)
+      val songs = Option(ap.getPlayingTrack) ++ Playlist.tracks.keys
       val songsInfo = songs.zipWithIndex.map(e => e._2 + ": " + e._1.getInfo.title +
         (if (full) " - " + e._1.getInfo.identifier else ""))
       val totalTime = songs.map(_.getDuration).sum
@@ -233,10 +233,11 @@ object Bot extends App {
     case regex"skip to (.+)$where" => where match {
       case regex"""(\d+)$num""" =>
         if (Playlist.size == 0) messageSender.reply(msg, "There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
+        else if (num == 0) messageSender.reply(msg, "Already playing that song")
         else {
-          val dest = math.min(num.toInt, Playlist.size)
+          val dest = math.min(num.toInt, Playlist.size) - 1
           val song = Playlist.tracks.keys.drop(dest).head
-          (0 until dest) foreach (i => Playlist.remove(0))
+          (0 until dest - 1) foreach (i => Playlist.remove(0))
           Playlist.skip()
           messageSender.reply(msg, "_skipping to " + song.getInfo.title + "_")
         }
