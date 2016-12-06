@@ -237,7 +237,7 @@ object Bot extends App {
         else {
           val dest = math.min(num.toInt, Playlist.size) - 1
           val song = Playlist.tracks.keys.drop(dest).head
-          (0 until dest - 1) foreach (i => Playlist.remove(0))
+          (0 until dest) foreach (i => Playlist.remove(0))
           Playlist.skip()
           messageSender.reply(msg, "_skipping to " + song.getInfo.title + "_")
         }
