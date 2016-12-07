@@ -2,7 +2,7 @@ name := "discord-jukebox"
 
 version := "0.1"
 
-scalaVersion := "2.12.0"
+scalaVersion := "2.12.1"
 
 fork := true
 
@@ -11,9 +11,10 @@ scalacOptions ++= Seq("-deprecation", "-feature", "-Yinfer-argument-types", "-Yp
 libraryDependencies ++= Seq(
   "org.json4s" %% "json4s-native" % "3.5.0",
   "com.github.scopt" %% "scopt" % "3.5.0",
-  "org.asynchttpclient" % "async-http-client" % "2.0.21",
-  "com.beachape" %% "enumeratum" % "1.4.17",
-  "com.sedmelluq" % "lavaplayer" % "1.1.22"
+  "org.asynchttpclient" % "async-http-client" % "2.0.24",
+  "com.beachape" %% "enumeratum" % "1.5.2",
+  "com.sedmelluq" % "lavaplayer" % "1.1.22",
+  "io.dropwizard.metrics" % "metrics-core" % "3.1.2"
 )
 enablePlugins(JavaAppPackaging)
 mainClass in Compile := Some("jukebox.Bot")
