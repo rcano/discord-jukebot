@@ -21,14 +21,14 @@ object Bot extends App {
   }.parse(args, new Clargs()).getOrElse(sys.exit(0))
 
   val audioPlayerManager = new DefaultAudioPlayerManager()
-  audioPlayerManager.getConfiguration.setResamplingQuality(AudioConfiguration.ResamplingQuality.HIGH)
+  audioPlayerManager.getConfiguration.setResamplingQuality(AudioConfiguration.ResamplingQuality.LOW)
   audioPlayerManager.registerSourceManager(new YoutubeAudioSourceManager())
   audioPlayerManager.registerSourceManager(new LocalAudioSourceManager())
   val ap = audioPlayerManager.createPlayer()
 
   val noData = new Array[Byte](0)
   @volatile var nextSoundFrame: Array[Byte] = noData
-  //configure a constant 20ms frame consumer thread independent of that of the voice connection, to avoid sound getting jammer if the connection drops.
+  //configure a constant 20ms frame consumer thread independent of that of the voice connection, to avoid sound getting jammed if the connection drops.
   val audioProviderThread = new AccurateRecurrentTask(cancel => {
     val frame = ap.provide
     nextSoundFrame = if (frame == null) noData else frame.data
