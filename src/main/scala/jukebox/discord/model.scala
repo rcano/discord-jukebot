@@ -131,7 +131,7 @@ case class VoiceChannel(
   userLimit: Int
 ) extends Channel
 
-case class Overwrite(id: String, tpe: String, allow: Int, deby: Int)
+case class Overwrite(id: String, tpe: String, allow: Int, deny: Int)
 
 case class DmChannel(
   id: String,
