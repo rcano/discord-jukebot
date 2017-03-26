@@ -22,4 +22,11 @@ object DiscordAudioUtils {
     System.arraycopy(encrypted, 0, res, 12, encrypted.length)
     nonce.array ++ encrypted
   }
+
+  def decrypt(audio: Array[Byte], secret: Array[Byte]): Array[Byte] = {
+    val header = Arrays.copyOfRange(audio, 0, 12)
+    val content = Arrays.copyOfRange(audio, 12, audio.length)
+    val nonce = header ++ new Array[Byte](12)
+    TweetNaCl.secretbox_open(content, nonce, secret)
+  }
 }

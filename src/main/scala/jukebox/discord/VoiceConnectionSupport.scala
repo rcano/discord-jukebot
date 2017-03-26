@@ -3,7 +3,7 @@ package discord
 
 import enumeratum.values.IntEnumEntry
 import java.io.{IOException}
-import java.net.{DatagramSocket, InetSocketAddress, DatagramPacket}
+import java.net.{DatagramSocket, InetSocketAddress, DatagramPacket, SocketTimeoutException}
 import org.asynchttpclient.{ws}
 
 import org.json4s.JsonAST.JValue
@@ -14,7 +14,13 @@ import AhcUtils._
 import scala.util.control.NoStackTrace
 import scala.util.control.NonFatal
 
+private[discord] object VoiceConnectionSupport {
+  val UdpKeepAlive = Array[Byte](0xC9.toByte, 0, 0, 0, 0, 0, 0, 0, 0)
+  val OpusFrameSize = 960
+  val MaxOpusPacketSize = OpusFrameSize * 2 // two channels
+}
 private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
+  import VoiceConnectionSupport._
 
   protected final class VoiceConnectionImpl(
       voiceStateUpdate: GatewayEvents.VoiceStateUpdate,
@@ -64,6 +70,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           val socket = new DatagramSocket()
           socket.connect(new InetSocketAddress(serverIp, port))
           val ourIp = discoverIp(ssrc, socket)
+          socket.setSoTimeout(10) //maximum of 10ms for each operation
 
           send(renderJson(gatewayMessage(
             VoiceOp.SelectPayload,
@@ -90,7 +97,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           var sendingAudio = false
           var seq: Char = 0
           var timestamp = 0
-          def sendAudio(cancel: SyncVar[Unit]): Unit = if (isActive) {
+          def sendAudio() = {
             val audio = voiceProducer()
             if (audio.length > 0) {
               if (!sendingAudio) send(renderJson(gatewayMessage(VoiceOp.Speaking, ("delay" -> 0) ~ ("speaking" -> true))))
@@ -107,14 +114,41 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
               send(renderJson(gatewayMessage(VoiceOp.Speaking, ("delay" -> 0) ~ ("speaking" -> false))))
               sendingAudio = false
             }
-          } else cancel.put(())
+          }
+          var keepAliveCall = 0l
+          def keepAliveNatPort() = {
+            if (keepAliveCall % (5000 / 20) == 0) { //every 5 seconds
+              try socket.send(new DatagramPacket(UdpKeepAlive, UdpKeepAlive.length))
+              catch { case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e) }
+            }
+            keepAliveCall += 1
+          }
+          val receiveBuffer = new Array[Byte](MaxOpusPacketSize + 12) //header size
+          def receiveAudio() = {
+            try {
+              val in = new DatagramPacket(receiveBuffer, receiveBuffer.length)
+              socket.receive(in)
+              voiceConsumer(DiscordAudioUtils.decrypt(receiveBuffer.take(in.getLength), secret))
+            } catch {
+              case to: SocketTimeoutException =>
+              case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e)
+            }
+          }
 
-          val senderTask = new AccurateRecurrentTask(sendAudio _, 20)
+          val senderTask = new AccurateRecurrentTask({ cancelTask =>
+            if (isActive) {
+              sendAudio()
+              keepAliveNatPort()
+              receiveAudio()
+            } else {
+              cancelTask.put(())
+              scala.util.Try(socket.close())
+            }
+
+          }, 20)
           senderTask.setName("DiscordAudio-" + voiceStateUpdate.voiceState.channelId)
           senderTask.start()
 
-          done
-        case VoiceOp.Speaking =>
           done
       })
     }
@@ -128,7 +162,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           listener.onUnexpectedVoiceOp(this, payload.op.extract, payload)
         } { op =>
           listener.onVoiceOp(this, op, payload)
-          stateMachine(payload.d -> op)
+          stateMachine.applyIfDefined(payload.d -> op)
         }
       } catch { case NonFatal(e) => listener.onConnectionError(this, e) }
     }
