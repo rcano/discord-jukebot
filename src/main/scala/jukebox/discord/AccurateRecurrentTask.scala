@@ -1,5 +1,6 @@
 package jukebox.discord
 
+import java.util.concurrent.locks.LockSupport
 import scala.concurrent.SyncVar
 
 class AccurateRecurrentTask(task: SyncVar[Unit] => Unit, everyMillis: Int) extends Thread {
@@ -19,9 +20,12 @@ class AccurateRecurrentTask(task: SyncVar[Unit] => Unit, everyMillis: Int) exten
 
   private def sleepFor(nanos: Long): Unit = {
     if (nanos > 0) {
-      val ms = nanos / 1000000
-      val nanosRem = nanos % 1000000
-      Thread.sleep(ms, nanosRem.toInt)
+      var elapsed = 0l
+      while (elapsed < nanos) {
+        val t0 = System.nanoTime()
+        LockSupport.parkNanos(nanos - elapsed)
+        elapsed += System.nanoTime() - t0
+      }
     }
   }
 }
