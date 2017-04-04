@@ -34,7 +34,7 @@ object Bot extends App {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"Sending $msg")
     }
-    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
     //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
     //    override def undefHandler(evt) = evt match {
     //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
@@ -128,10 +128,12 @@ object Bot extends App {
   private case object JoinVoiceChannel
   private case object LeaveVoiceChannel
   class GuildStateMachine(val me: String, val gateway: DiscordClient#GatewayConnection, val guild: GatewayEvents.Guild) extends StateMachine[Any] {
-    def initState = messageHandling(None)
+    def initState = messageHandling(None, Vector.empty)
 
-    private case class UpdateStatus(status: Status)
-    def messageHandling(voiceConnection: Option[DiscordClient#VoiceConnection]): Transition = transition {
+    case class Subscription(msg: Message)
+    case class Unsubscription(msg: Message)
+    case class UpdateStatus(status: String)
+    def messageHandling(voiceConnection: Option[DiscordClient#VoiceConnection], subscribers: Seq[Subscription]): Transition = transition {
       case msg: Message =>
         try {
           val cmd = msg.content.stripPrefix(me).replaceFirst("^[,:]?\\s+", "")
@@ -145,14 +147,20 @@ object Bot extends App {
         current
 
       case JoinVoiceChannel if voiceConnection.isEmpty =>
-        setupVoiceChannel(c => messageHandling(Some(c)))
+        setupVoiceChannel(c => messageHandling(Some(c), subscribers))
       case LeaveVoiceChannel if voiceConnection.isDefined =>
         voiceConnection foreach (_.close())
         gateway.sendVoiceStateUpdate(guild.id, None, false, true)
 
-        messageHandling(None)
+        messageHandling(None, subscribers)
+
+      case sub @ Subscription(msg) if !subscribers.exists(_.msg.author.id == msg.author.id) =>
+        messageHandling(voiceConnection, subscribers :+ sub)
+      case sub @ Unsubscription(msg) if subscribers.exists(_.msg.author.id == msg.author.id) =>
+        messageHandling(voiceConnection, subscribers.filterNot(_.msg.author.id == msg.author.id))
+
       case UpdateStatus(status) =>
-        gateway.sendStatusUpdate(None, status)
+        subscribers.foreach(s => messageSender.reply(s.msg, status))
         current
     }
 
@@ -177,7 +185,7 @@ object Bot extends App {
 
     def leaveMusicChannel(): Unit = applyIfDefined(LeaveVoiceChannel)
     def joinMusicChannel(): Unit = applyIfDefined(JoinVoiceChannel)
-    def updatePresence(status: Status): Unit = apply(UpdateStatus(status))
+    def updateStatus(status: String): Unit = applyIfDefined(UpdateStatus(status))
 
     val ap = audioPlayerManager.createPlayer()
     object Playlist extends AudioEventListener {
@@ -220,6 +228,13 @@ object Bot extends App {
     }
     ap.addListener(Playlist)
 
+    def updatePlayingTrack(): Unit = { //no longer makes sense, sorry
+      ap.getPlayingTrack match {
+        case null => updateStatus("idle")
+        case track => updateStatus(track.getInfo.title + "\n" + track.getInfo.identifier)
+      }
+    }
+
     val commands = collection.mutable.ListBuffer[Command]()
     case class Command(name: String, description: String)(val action: Message => PartialFunction[String, Any])
 
@@ -249,8 +264,7 @@ object Bot extends App {
       case "pause" | "stop" =>
         ap.setPaused(true)
         messageSender.reply(msg, "_paused_")
-
-      //        discordClient changeStatus Status.game("paused")
+        updateStatus("paused")
     })
     commands += Command("unpause/resume/play", "resumes playing the song")(msg => {
       case "unpause" | "resume" | "play" =>
@@ -379,11 +393,22 @@ object Bot extends App {
     commands += Command("leave", s"Makes me leave the voice channel ${clargs.channel}")(msg => {
       case "leave" => applyIfDefined(LeaveVoiceChannel)
     })
-//    commands += Command("kill yourself", s"Makes me die.")(msg => {
-//      case "kill yourself" =>
-//        DiscordHandlerSM.shutdown()
-//        sys.exit(0)
-//    })
+    //    commands += Command("kill yourself", s"Makes me die.")(msg => {
+    //      case "kill yourself" =>
+    //        DiscordHandlerSM.shutdown()
+    //        sys.exit(0)
+    //    })
+
+    commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")(msg => {
+      case "subscribe" =>
+        applyIfDefined(Subscription(msg))
+        messageSender.reply(msg, "subscribed")
+    })
+    commands += Command("unsubscribe", "(bot only) Unsubscribes from status updates via DM.")(msg => {
+      case "unsubscribe" =>
+        applyIfDefined(Unsubscription(msg))
+        messageSender.reply(msg, "unsubscribed")
+    })
 
     commands += Command("help", "Prints this message")(msg => {
       case "help" =>
@@ -397,13 +422,6 @@ object Bot extends App {
 
   val discordClient = new DiscordClient(clargs.discordToken, DiscordHandlerSM)
   val messageSender = new DiscordRateHonoringSender(discordClient)
-
-  def updatePlayingTrack(): Unit = { //no longer makes sense, sorry
-    //    ap.getPlayingTrack match {
-    //      case null => guildStateMachine.updatePresence(Status.Empty)
-    //      case track => guildStateMachine.updatePresence(Status.Streaming(track.getInfo.title, track.getInfo.identifier))
-    //    }
-  }
 
   def millisToString(millis: Long) = {
     val seconds = millis / 1000
