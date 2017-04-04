@@ -9,12 +9,13 @@ fork := true
 scalacOptions ++= Seq("-deprecation", "-feature", "-Yinfer-argument-types", "-Ypartial-unification", "-Xlint", "-opt:_", "-opt-warnings:_")
 
 libraryDependencies ++= Seq(
-  "org.json4s" %% "json4s-native" % "3.5.0",
+  "com.github.pathikrit" %% "better-files" % "3.0.0",
+  "org.json4s" %% "json4s-native" % "3.5.1",
   "com.github.scopt" %% "scopt" % "3.5.0",
-  "org.asynchttpclient" % "async-http-client" % "2.0.24",
-  "com.beachape" %% "enumeratum" % "1.5.2",
-  "com.sedmelluq" % "lavaplayer" % "1.1.22",
-  "io.dropwizard.metrics" % "metrics-core" % "3.1.2"
+  "org.asynchttpclient" % "async-http-client" % "2.0.31",
+  "com.beachape" %% "enumeratum" % "1.5.10",
+  "com.sedmelluq" % "lavaplayer" % "1.2.24",
+  "io.dropwizard.metrics" % "metrics-core" % "3.2.2"
 )
 enablePlugins(JavaAppPackaging)
 mainClass in Compile := Some("jukebox.Bot")

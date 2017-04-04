@@ -20,7 +20,10 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
   import DiscordClient._, DiscordConstants._
   private[discord] implicit val jsonFormats = org.json4s.DefaultFormats
   private[discord] val baseHeaders = Map[String, java.util.Collection[String]]("Authorization" -> Arrays.asList(s"Bot $token")).asJava
-  private[discord] val timer = new HashedWheelTimer(5, MILLISECONDS)
+  private[discord] val timer = new HashedWheelTimer(
+    r => new Thread(null, r, "HashedWheelTimer", 48 * 1024),
+    5, MILLISECONDS
+  )
   def login(preferredShards: Option[Int] = None): Future[Seq[GatewayConnection]] = {
     fetchGateway flatMap {
       case (gw, shards) =>
@@ -40,7 +43,7 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
   def connectToVoiceChannel(
     voiceStateUpdate: GatewayEvents.VoiceStateUpdate,
     voiceServerUpdate: GatewayEvents.VoiceServerUpdate,
-    voiceConsumer: Array[Byte] => Unit,
+    voiceConsumer: AudioRtpFrame => Unit,
     voiceProducer: () => Array[Byte]
   ): Future[VoiceConnection] = {
     val res = new VoiceConnectionImpl(voiceStateUpdate, voiceServerUpdate, voiceConsumer, voiceProducer)
@@ -71,7 +74,9 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
     def sendVoiceStateUpdate(guildId: String, channelId: Option[String], selfMute: Boolean, selfDeaf: Boolean): Unit
   }
 
-  trait VoiceConnection extends Connection
+  trait VoiceConnection extends Connection {
+    def guildId: String
+  }
 
   private[discord] def renderJson(jv: org.json4s.JValue): String = {
     import org.json4s.native.JsonMethods._

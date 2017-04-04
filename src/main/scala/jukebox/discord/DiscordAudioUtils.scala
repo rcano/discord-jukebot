@@ -23,10 +23,12 @@ object DiscordAudioUtils {
     nonce.array ++ encrypted
   }
 
-  def decrypt(audio: Array[Byte], secret: Array[Byte]): Array[Byte] = {
+  def decrypt(audio: Array[Byte], secret: Array[Byte]): AudioRtpFrame = {
     val header = Arrays.copyOfRange(audio, 0, 12)
     val content = Arrays.copyOfRange(audio, 12, audio.length)
     val nonce = header ++ new Array[Byte](12)
-    TweetNaCl.secretbox_open(content, nonce, secret)
+    val decrAudio = TweetNaCl.secretbox_open(content, nonce, secret)
+    val bb = ByteBuffer.wrap(header)
+    AudioRtpFrame(bb.getChar(2), bb.getInt(4), bb.getInt(8), decrAudio)
   }
 }

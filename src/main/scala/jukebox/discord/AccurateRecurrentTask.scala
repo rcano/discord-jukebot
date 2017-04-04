@@ -3,7 +3,7 @@ package jukebox.discord
 import java.util.concurrent.locks.LockSupport
 import scala.concurrent.SyncVar
 
-class AccurateRecurrentTask(task: SyncVar[Unit] => Unit, everyMillis: Int) extends Thread {
+class AccurateRecurrentTask(task: SyncVar[Unit] => Unit, everyMillis: Int) extends Thread(null, null, "AccurateRecurrentTask", 100 * 1024) {
   private[this] final val sleepInterval = everyMillis * 1000000
   private[this] val cancelled = new SyncVar[Unit]()
   def cancel(): Unit = cancelled.put(())

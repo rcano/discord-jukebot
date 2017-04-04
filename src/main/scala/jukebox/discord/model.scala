@@ -239,3 +239,5 @@ object Status {
   case class Streaming(name: String, url: String) extends Status
   case object Empty extends Status
 }
+
+case class AudioRtpFrame(rtpSequence: Int, rtpTimestamp: Int, rtpSsrc: Int, audio: Array[Byte])

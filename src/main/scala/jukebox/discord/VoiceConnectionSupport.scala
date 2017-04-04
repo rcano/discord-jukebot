@@ -25,12 +25,13 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
   protected final class VoiceConnectionImpl(
       voiceStateUpdate: GatewayEvents.VoiceStateUpdate,
       voiceServerUpdate: GatewayEvents.VoiceServerUpdate,
-      voiceConsumer: Array[Byte] => Unit,
+      voiceConsumer: AudioRtpFrame => Unit,
       voiceProducer: () => Array[Byte]
   ) extends VoiceConnection with ws.WebSocketTextListener with ws.WebSocketCloseCodeReasonListener {
     @volatile private[this] var active = true
     @volatile private[this] var websocket: ws.WebSocket = _
 
+    override def guildId = voiceServerUpdate.guildId
     override def isActive = active
     override def close() = if (active && websocket != null) websocket.close()
 
@@ -70,7 +71,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           val socket = new DatagramSocket()
           socket.connect(new InetSocketAddress(serverIp, port))
           val ourIp = discoverIp(ssrc, socket)
-          socket.setSoTimeout(10) //maximum of 10ms for each operation
+          socket.setSoTimeout(5)
 
           send(renderJson(gatewayMessage(
             VoiceOp.SelectPayload,
@@ -96,7 +97,6 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
            */
           var sendingAudio = false
           var seq: Char = 0
-          var timestamp = 0
           def sendAudio() = {
             val audio = voiceProducer()
             if (audio.length > 0) {
@@ -105,7 +105,6 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
 
               if (seq + 1 > Char.MaxValue) seq = 0
               else seq = (seq + 1).toChar
-              timestamp += 960
 
               try socket.send(new DatagramPacket(data, data.length))
               catch { case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e) }
@@ -125,13 +124,18 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           }
           val receiveBuffer = new Array[Byte](MaxOpusPacketSize + 12) //header size
           def receiveAudio() = {
-            try {
-              val in = new DatagramPacket(receiveBuffer, receiveBuffer.length)
-              socket.receive(in)
-              voiceConsumer(DiscordAudioUtils.decrypt(receiveBuffer.take(in.getLength), secret))
-            } catch {
-              case to: SocketTimeoutException =>
-              case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e)
+            //keep receiving audio for 10ms
+            val start = System.nanoTime()
+            while (System.nanoTime() - start < 10.millis.toNanos) {
+              //the while logic is so that we can handle bursts satisfactorily
+              try {
+                val in = new DatagramPacket(receiveBuffer, receiveBuffer.length)
+                socket.receive(in)
+                voiceConsumer(DiscordAudioUtils.decrypt(receiveBuffer.take(in.getLength), secret))
+              } catch {
+                case to: SocketTimeoutException =>
+                case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e)
+              }
             }
           }
 
@@ -193,7 +197,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
               close()
               onClose(websocket)
             }
-          }, 5, SECONDS)
+          }, (interval * 0.9).toInt, MILLISECONDS)
 
           lazy val detectHeartbeatAck: stateMachine.Transition = stateMachine.transition {
             case (_, VoiceOp.Heartbeat) =>
