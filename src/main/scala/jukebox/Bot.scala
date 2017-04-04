@@ -47,7 +47,7 @@ object Bot extends App {
     def awaitGuilds(prevBotData: Option[BotData], ready: GatewayEvents.Ready, accGuilds: Seq[GatewayEvents.Guild] = Vector.empty): Transition = transition {
       case GatewayEvent(conn, GatewayEvents.GuildCreate(g)) =>
         val guilds = accGuilds :+ g
-        if (guilds.size == ready.guilds.size) {
+        if (prevBotData.isDefined || guilds.size == ready.guilds.size) {
           prevBotData.fold {
             val botData = BotData(conn, ready, guilds.map(g => g -> new GuildStateMachine(s"<@${ready.user.id}>", conn, g))(collection.breakOut))
             println("just conected with " + botData)
