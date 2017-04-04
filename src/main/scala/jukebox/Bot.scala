@@ -379,11 +379,11 @@ object Bot extends App {
     commands += Command("leave", s"Makes me leave the voice channel ${clargs.channel}")(msg => {
       case "leave" => applyIfDefined(LeaveVoiceChannel)
     })
-    commands += Command("kill yourself", s"Makes me die.")(msg => {
-      case "kill yourself" =>
-        DiscordHandlerSM.shutdown()
-        sys.exit(0)
-    })
+//    commands += Command("kill yourself", s"Makes me die.")(msg => {
+//      case "kill yourself" =>
+//        DiscordHandlerSM.shutdown()
+//        sys.exit(0)
+//    })
 
     commands += Command("help", "Prints this message")(msg => {
       case "help" =>
