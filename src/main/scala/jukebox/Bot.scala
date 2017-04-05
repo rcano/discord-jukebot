@@ -112,7 +112,8 @@ object Bot extends App {
         println("reconnecting to gateway because of " + reason)
         transition {
           case GatewayEvent(conn, GatewayEvents.Resumed) =>
-            val newData = data.copy(gateway = conn)
+            val updatedGuilds = data.guilds.map { case (g, gsm) => g -> new GuildStateMachine(gsm.me, conn, g) }
+            val newData = data.copy(gateway = conn, guilds = updatedGuilds)
             println("resuming! new data " + newData)
             //            if (newData.voiceConnected) setupVoiceChannel(newData, c => messageHandling(newData, Some(c)))
             //            else 
