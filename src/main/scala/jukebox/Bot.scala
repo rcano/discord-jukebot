@@ -48,15 +48,14 @@ object Bot extends App {
       case GatewayEvent(conn, GatewayEvents.GuildCreate(g)) =>
         val guilds = accGuilds :+ g
         if (prevBotData.isDefined || guilds.size == ready.guilds.size) {
-          prevBotData.fold {
+          val botData = prevBotData.fold {
             val botData = BotData(conn, ready, guilds.map(g => g -> new GuildStateMachine(s"<@${ready.user.id}>", conn, g))(collection.breakOut))
             println("just conected with " + botData)
-            botData.guilds.valuesIterator.foreach(_.applyIfDefined(JoinVoiceChannel))
-            messageHandling(botData)
-          } { prevBotData => //must update the gateway conn of every GuildStateMachine
-            val updatedGuilds = prevBotData.guilds.map { case (g, gsm) => g -> new GuildStateMachine(gsm.me, conn, g) }
-            messageHandling(BotData(conn, ready, updatedGuilds))
-          }
+            botData
+          }(_.withUpdatedConnectoin(conn))
+
+          botData.guilds.valuesIterator.foreach(_.applyIfDefined(RejoinVoiceChannel))
+          messageHandling(botData)
 
         } else {
           println(s"Accumulating guild, so far ${guilds.size}")
@@ -112,12 +111,9 @@ object Bot extends App {
         println("reconnecting to gateway because of " + reason)
         transition {
           case GatewayEvent(conn, GatewayEvents.Resumed) =>
-            val updatedGuilds = data.guilds.map { case (g, gsm) => g -> new GuildStateMachine(gsm.me, conn, g) }
-            val newData = data.copy(gateway = conn, guilds = updatedGuilds)
-            println("resuming! new data " + newData)
-            //            if (newData.voiceConnected) setupVoiceChannel(newData, c => messageHandling(newData, Some(c)))
-            //            else 
-            messageHandling(newData)
+            val newBotData = data.withUpdatedConnectoin(conn)
+            newBotData.guilds.valuesIterator.foreach(_.applyIfDefined(RejoinVoiceChannel))
+            messageHandling(newBotData)
         } orElse awaitReady(Some(data))
     }
   }
@@ -125,8 +121,12 @@ object Bot extends App {
   case class BotData(gateway: DiscordClient#GatewayConnection, info: GatewayEvents.Ready, guilds: Map[GatewayEvents.Guild, GuildStateMachine]) {
     val me = s"<@${info.user.id}>"
     override def toString = s"BotData($gateway)"
+    def withUpdatedConnectoin(conn: DiscordClient#GatewayConnection): BotData = {
+      val updatedGuilds = guilds.map { case (g, gsm) => g -> new GuildStateMachine(gsm.me, conn, g) }
+      copy(gateway = conn, guilds = updatedGuilds)
+    }
   }
-  private case object JoinVoiceChannel
+  private case object RejoinVoiceChannel
   private case object LeaveVoiceChannel
   class GuildStateMachine(val me: String, val gateway: DiscordClient#GatewayConnection, val guild: GatewayEvents.Guild) extends StateMachine[Any] {
     def initState = messageHandling(None, Vector.empty)
@@ -147,13 +147,12 @@ object Bot extends App {
         }
         current
 
-      case JoinVoiceChannel if voiceConnection.isEmpty =>
+      case RejoinVoiceChannel =>
+        voiceConnection foreach { vc =>
+          vc.close()
+          gateway.sendVoiceStateUpdate(guild.id, None, false, true)
+        }
         setupVoiceChannel(c => messageHandling(Some(c), subscribers))
-      case LeaveVoiceChannel if voiceConnection.isDefined =>
-        voiceConnection foreach (_.close())
-        gateway.sendVoiceStateUpdate(guild.id, None, false, true)
-
-        messageHandling(None, subscribers)
 
       case sub @ Subscription(msg) if !subscribers.exists(_.msg.author.id == msg.author.id) =>
         messageHandling(voiceConnection, subscribers :+ sub)
@@ -184,8 +183,7 @@ object Bot extends App {
       }
     }
 
-    def leaveMusicChannel(): Unit = applyIfDefined(LeaveVoiceChannel)
-    def joinMusicChannel(): Unit = applyIfDefined(JoinVoiceChannel)
+    def rejoinMusicChannel(): Unit = applyIfDefined(RejoinVoiceChannel)
     def updateStatus(status: String): Unit = applyIfDefined(UpdateStatus(status))
 
     val ap = audioPlayerManager.createPlayer()
@@ -388,11 +386,8 @@ object Bot extends App {
         }
     })
 
-    commands += Command("join", s"Makes me join the voice channel ${clargs.channel}")(msg => {
-      case "join" => applyIfDefined(JoinVoiceChannel)
-    })
-    commands += Command("leave", s"Makes me leave the voice channel ${clargs.channel}")(msg => {
-      case "leave" => applyIfDefined(LeaveVoiceChannel)
+    commands += Command("rejoin", s"Makes me rejoin the voice channel ${clargs.channel} (as sometimes Discord bugs out).")(msg => {
+      case "rejoin" => applyIfDefined(RejoinVoiceChannel)
     })
     //    commands += Command("kill yourself", s"Makes me die.")(msg => {
     //      case "kill yourself" =>
