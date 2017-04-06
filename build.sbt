@@ -14,7 +14,7 @@ libraryDependencies ++= Seq(
   "com.github.scopt" %% "scopt" % "3.5.0",
   "org.asynchttpclient" % "async-http-client" % "2.0.31",
   "com.beachape" %% "enumeratum" % "1.5.10",
-  "com.sedmelluq" % "lavaplayer" % "1.2.24",
+  "com.sedmelluq" % "lavaplayer" % "1.2.34",
   "io.dropwizard.metrics" % "metrics-core" % "3.2.2"
 )
 enablePlugins(JavaAppPackaging)
