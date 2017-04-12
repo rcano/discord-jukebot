@@ -85,7 +85,7 @@ object AudioReceiveTest extends App {
   //  val opusOut = "out.raw".toFile.newFileChannel(File.OpenOptions.append)
   val opusDecoder = new com.sedmelluq.discord.lavaplayer.natives.opus.OpusDecoder(48000, 2)
 
-  val jitterBuffer = new JitterBuffer(20, 20)
+  val jitterBuffer = new JitterBuffer(50, 20)
   val opusFrame = ByteBuffer.allocateDirect(1920) //way larger than it needs to
   val pcmOutput = ByteBuffer.allocateDirect(960 * 4)
   val pcmOutputShortBuffer = pcmOutput.asShortBuffer()
@@ -97,40 +97,47 @@ object AudioReceiveTest extends App {
   val receiverGw = Await.result(receiver.login(), Duration.Inf)
   receiverGw.head.sendStatusUpdate(None, Status.PlayingGame("receing data"))
 
-  var lastFrame: Array[Byte] = null
+  var pendingBufferIterations = 0
   var dropped = 0
   val jitterBufferSize = metrics.histogram("jitterbuffer size")
   val compensation = metrics.histogram("compensation")
   new AccurateRecurrentTask(cancel => {
-    jitterBuffer.synchronized {
-      if (dropped > 0 && jitterBuffer.size > 3) {
-        //        println("#######Compensating frame######")
+    jitterBufferSize.update(jitterBuffer.size)
+    compensation.update(dropped)
+    if (pendingBufferIterations > 0) {
+      java.util.Arrays.fill(pcmOutputArray, 0.toByte) //write silence
+      sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
+      pendingBufferIterations -= 1
+    } else {
+
+      jitterBuffer.synchronized {
+        if (dropped > 0 && jitterBuffer.size > 3) {
+          //        println("#######Compensating frame######")
+          jitterBuffer.pop()
+          dropped -= 1
+        }
         jitterBuffer.pop()
-        dropped -= 1
-      }
-      jitterBuffer.pop()
-    }.fold {
-      if (lastFrame != null && dropped < 4) {
-        //        println("#######Extending frame######")
-        sourceDataLine.write(lastFrame, 0, lastFrame.length)
+      }.fold {
         dropped += 1
-      } else {
+        if (dropped >= 3) {
+          println("buffering")
+          pendingBufferIterations = 8 //try to buffer up 160ms
+          dropped = 0 //reset this
+        }
         java.util.Arrays.fill(pcmOutputArray, 0.toByte) //write silence
         sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
-      }
-    } { frame =>
-      opusFrame.clear()
-      opusFrame.put(frame.audio).flip()
-      pcmOutputShortBuffer.clear()
-      val written = opusDecoder.decode(opusFrame, pcmOutputShortBuffer) * 4
-      //    println("decoded " + pcmOutputShortBuffer)
-      pcmOutput.position(0).limit(written)
-      pcmOutput.get(pcmOutputArray)
+        ()
+      } { frame =>
+        opusFrame.clear()
+        opusFrame.put(frame.audio).flip()
+        pcmOutputShortBuffer.clear()
+        val written = opusDecoder.decode(opusFrame, pcmOutputShortBuffer) * 4
+        //    println("decoded " + pcmOutputShortBuffer)
+        pcmOutput.position(0).limit(written)
+        pcmOutput.get(pcmOutputArray)
 
-      sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
-      lastFrame = pcmOutputArray
-      jitterBufferSize.update(jitterBuffer.size)
-      compensation.update(dropped)
+        sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
+      }
     }
-  }, 19).start()
+  }, 20).start()
 }
