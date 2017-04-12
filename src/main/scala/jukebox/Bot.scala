@@ -227,10 +227,10 @@ object Bot extends App {
     }
     ap.addListener(Playlist)
 
-    def updatePlayingTrack(): Unit = { //no longer makes sense, sorry
+    def updatePlayingTrack(): Unit = { //repurposed for the subscription system
       ap.getPlayingTrack match {
         case null => updateStatus("idle")
-        case track => updateStatus(track.getInfo.title + "\n" + track.getInfo.identifier)
+        case track => updateStatus(track.getInfo.title + "\nnow playing:" + track.getInfo.identifier)
       }
     }
 
