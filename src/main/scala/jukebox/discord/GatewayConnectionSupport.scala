@@ -155,14 +155,18 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
           case End => (seq, op, tpe)
           case FieldStart("t") => p.nextToken match {
             case StringVal(tpe) => parse(seq, op, Some(tpe))
+            case NullVal => parse(seq, op, None)
             case _ => p.fail("event type not a string")
           }
           case FieldStart("s") => p.nextToken match {
             case LongVal(seq) => parse(Some(seq), op, tpe)
+            case IntVal(seq) => parse(Some(seq.intValue), op, tpe)
+            case NullVal => parse(None, op, tpe)
             case _ => p.fail("event type not a long")
           }
           case FieldStart("op") => p.nextToken match {
             case LongVal(op) => parse(seq, op.toInt, tpe)
+            case IntVal(op) => parse(seq, op.intValue, tpe)
             case _ => p.fail("op type not a long")
           }
           case _ => parse(seq, op, tpe)
