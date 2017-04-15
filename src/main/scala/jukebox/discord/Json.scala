@@ -2,6 +2,7 @@ package jukebox
 package discord
 
 import java.time.Instant
+import java.time.format.{DateTimeFormatter, DateTimeParseException}
 import json4sadvser.AdvancedSerializer
 import org.json4s._, native.JsonMethods._, JsonDSL._
 import scala.annotation.unchecked.uncheckedVariance
@@ -9,10 +10,11 @@ import Json4sUtils._
 
 object Json {
 
-  val dateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX")
+  val fullDateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX")
+  val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXXXX")
   val instantSerializer = new CustomSerializer[Instant](
     implicit formats => (
-      { case JString(s) => Instant from dateTimeFormatter.parse(s) },
+      { case JString(s) => try Instant from fullDateTimeFormatter.parse(s) catch { case e: DateTimeParseException => Instant from dateTimeFormatter.parse(s) } },
       { case i: Instant => JString(i.toString) }
     )
   )
