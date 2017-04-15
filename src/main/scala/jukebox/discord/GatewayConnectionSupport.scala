@@ -179,7 +179,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       
       try {
         val (s, op, tpe) = JsonParser.parse(msg, parser)
-        if (op == -1) throw new IllegalStateException("no option found in discrod message?\n" + msg)
+        if (op == -1) throw new IllegalStateException("no option found in discord message?\n" + msg)
         lazy val payload = parseJson(msg).dyn
 
         s foreach (seq = _)
