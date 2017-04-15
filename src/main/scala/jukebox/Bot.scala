@@ -42,10 +42,10 @@ object Bot extends App {
     //    }
     def initState = awaitReady(None)
     def awaitReady(botData: Option[BotData]): Transition = transition {
-      case GatewayEvent(_, evt: GatewayEvents.Ready) => awaitGuilds(botData, evt)
+      case GatewayEvent(_, GatewayEvents.Ready(evt)) => awaitGuilds(botData, evt)
     }
     def awaitGuilds(prevBotData: Option[BotData], ready: GatewayEvents.Ready, accGuilds: Seq[GatewayEvents.Guild] = Vector.empty): Transition = transition {
-      case GatewayEvent(conn, GatewayEvents.GuildCreate(g)) =>
+      case GatewayEvent(conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(g))) =>
         val guilds = accGuilds :+ g
         if (prevBotData.isDefined || guilds.size == ready.guilds.size) {
           val botData = prevBotData.fold {
@@ -73,11 +73,11 @@ object Bot extends App {
     }
 
     def messageHandling(data: BotData): Transition = transition {
-      case GatewayEvent(_, GatewayEvents.MessageCreate(msg)) if msg.content startsWith data.me =>
+      case GatewayEvent(_, GatewayEvents.MessageCreate(GatewayEvents.MessageCreate(msg))) if msg.content startsWith data.me =>
         dispatchByChannelId(data, msg.channelId, msg)(messageSender.reply(msg, s"What guild is this?"))
         current
 
-      case GatewayEvent(_, voiceState: GatewayEvents.VoiceStateUpdate) =>
+      case GatewayEvent(_, GatewayEvents.VoiceStateUpdate(voiceState)) =>
         val dispatcher = voiceState.voiceState.guildId.map(g => dispatchByGuildId(data, g, _: Any) _) orElse
           voiceState.voiceState.channelId.map(c => dispatchByChannelId(data, c, _: Any) _)
         dispatcher.fold(println(s"No guild nor channelId in VoiceStateUpdate? $voiceState"))(
@@ -85,7 +85,7 @@ object Bot extends App {
         )
         current
 
-      case GatewayEvent(conn, vsu: GatewayEvents.VoiceServerUpdate) =>
+      case GatewayEvent(conn, GatewayEvents.VoiceServerUpdate(vsu)) =>
         dispatchByGuildId(data, vsu.guildId, vsu)(println(s"What guild is this VoiceServerUpdate from? $vsu"))
         current
 
@@ -110,7 +110,7 @@ object Bot extends App {
       case Reconnecting(conn: DiscordClient#GatewayConnection, reason) =>
         println("reconnecting to gateway because of " + reason)
         transition {
-          case GatewayEvent(conn, GatewayEvents.Resumed) =>
+          case GatewayEvent(conn, GatewayEvents.Resumed(())) =>
             val newBotData = data.withUpdatedConnectoin(conn)
             newBotData.guilds.valuesIterator.foreach(_.applyIfDefined(RejoinVoiceChannel))
             messageHandling(newBotData)

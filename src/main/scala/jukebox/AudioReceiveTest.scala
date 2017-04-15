@@ -40,7 +40,7 @@ object AudioReceiveTest extends App {
     val stateMachine = new StateMachine[(DiscordClient#GatewayConnection, GatewayEvents.GatewayEvent)] {
       def initState = ready
       def ready = transition {
-        case (conn, GatewayEvents.GuildCreate(guild)) =>
+        case (conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(guild))) =>
           println(Console.CYAN + s"asking to join channel ${guild.name}" + Console.RESET)
           val musicChannel = guild.channels.find(_.name == "music").get
           conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)
@@ -48,10 +48,10 @@ object AudioReceiveTest extends App {
       }
 
       def setupVoiceChannel(guild: GatewayEvents.Guild): Transition = transition {
-        case (conn, u: GatewayEvents.VoiceStateUpdate) =>
+        case (conn, GatewayEvents.VoiceStateUpdate(u)) =>
           println(s"State received, waiting for voice server update")
           transition {
-            case (conn, s: GatewayEvents.VoiceServerUpdate) =>
+            case (conn, GatewayEvents.VoiceServerUpdate(s)) =>
               println(s"connecting to voice channel")
               conn.client.connectToVoiceChannel(u, s, voiceConsumer, voiceProducer)
               detectFailures(guild)
@@ -59,12 +59,12 @@ object AudioReceiveTest extends App {
       }
 
       def detectFailures(guild: GatewayEvents.Guild) = transition {
-        case (conn, GatewayEvents.Resumed) =>
+        case (conn, GatewayEvents.Resumed(())) =>
           println(Console.CYAN + s"asking to rejoin channel ${guild.name}" + Console.RESET)
           val musicChannel = guild.channels.find(_.name == "music").get
           conn.sendVoiceStateUpdate(guild.id, None, false, true)
           transition {
-            case (conn, s: GatewayEvents.VoiceStateUpdate) =>
+            case (conn, GatewayEvents.VoiceStateUpdate(s)) =>
               conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)
               setupVoiceChannel(guild)
           }
@@ -120,7 +120,7 @@ object AudioReceiveTest extends App {
       }.fold {
         dropped += 1
         if (dropped >= 3) {
-          println("buffering")
+          //          println("buffering")
           pendingBufferIterations = 8 //try to buffer up 160ms
           dropped = 0 //reset this
         }
