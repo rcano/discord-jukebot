@@ -247,10 +247,10 @@ object DiscordClient {
   trait DiscordListener {
     def onGatewayEvent(connection: DiscordClient#GatewayConnection): GatewayEvents.GatewayEvent => Any
 
-    def onGatewayData(data: DynJValueSelector): Unit = {}
-    def onGatewayOp(connection: DiscordClient#GatewayConnection, op: GatewayOp, data: DynJValueSelector): Unit = {}
+    def onGatewayData(data: => DynJValueSelector): Unit = {}
+    def onGatewayOp(connection: DiscordClient#GatewayConnection, op: => GatewayOp, data: => DynJValueSelector): Unit = {}
     def onVoiceOp(connection: DiscordClient#VoiceConnection, op: VoiceOp, data: DynJValueSelector): Unit = {}
-    def onUnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: DynJValueSelector): Unit = {}
+    def onUnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: => DynJValueSelector): Unit = {}
     def onUnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: DynJValueSelector): Unit = {}
     def onMessageBeingSent(connection: DiscordClient#Connection, msg: String): Unit = {}
 

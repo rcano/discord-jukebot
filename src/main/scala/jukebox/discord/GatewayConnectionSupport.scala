@@ -10,6 +10,8 @@ import org.asynchttpclient.ws
 
 import org.json4s.JsonAST.{JValue, JInt}
 import org.json4s.JsonDSL._
+import org.json4s.native.JsonParser
+import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
 import scala.util.control.NoStackTrace
@@ -67,7 +69,8 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
      * **************************************************
      */
 
-    val stateMachine = new StateMachine[(DynJValueSelector, GatewayOp)] {
+    case class GatewayMessage(op: GatewayOp, tpe: Option[String], payload: () => DynJValueSelector)
+    val stateMachine = new StateMachine[GatewayMessage] {
       private[this] val identityMsg = renderJson {
         gatewayMessage(
           GatewayOp.Identify,
@@ -85,13 +88,10 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
         )
       }
 
-      def state(f: DynJValueSelector => PartialFunction[GatewayOp, Transition]): Transition = transition {
-        case (payload, op) if f(payload).isDefinedAt(op) => f(payload)(op)
-      }
       def initState = hello
-      def hello = state(payload => {
-        case GatewayOp.Hello =>
-          nextHeartbeat(payload.d.heartbeat_interval.extract)
+      def hello = transition {
+        case GatewayMessage(GatewayOp.Hello, _, payload) =>
+          nextHeartbeat(payload().d.heartbeat_interval.extract)
           lastSession match {
             case None =>
               send(identityMsg)
@@ -102,65 +102,90 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
                 ("seq" -> lastSession.seq))))
               resume
           }
-      })
+      }
 
-      def handshake = state(payload => {
-        case GatewayOp.Dispatch if payload.t.extract[String] == "READY" =>
-          session = Some(SessionData(payload.d.session_id.extract, payload.d.v.extract))
-          dispatcher((payload, GatewayOp.Dispatch))
+      def handshake = transition {
+        case evt @ GatewayMessage(GatewayOp.Dispatch, Some("READY"), payload) =>
+          session = Some(SessionData(payload().d.session_id.extract, payload().d.v.extract))
+          dispatcher(evt)
           dispatcher
 
-        case GatewayOp.InvalidSession =>
+        case GatewayMessage(GatewayOp.InvalidSession, _, _) =>
           listener.onConnectionError(GatewayConnectionImpl.this, new IllegalStateException("Received an invalid session after sending identification.") with NoStackTrace)
           close()
           done
-      })
+      }
 
-      def resume: Transition = state(payload => {
-        case GatewayOp.InvalidSession =>
+      def resume: Transition = transition {
+        case GatewayMessage(GatewayOp.InvalidSession, _, _) =>
           send(identityMsg)
           handshake
 
-        case GatewayOp.Dispatch if payload.t.extract[String] == "RESUMED" =>
+        case evt @ GatewayMessage(GatewayOp.Dispatch, Some("RESUMED"), _) =>
           session = lastSession.map(_.data) //only session needs to be assgined, seq is obtained from the resumed message
-          dispatcher((payload, GatewayOp.Dispatch))
+          dispatcher(evt)
           dispatcher
 
-        case GatewayOp.Dispatch => //replayed messages
-          dispatcher((payload, GatewayOp.Dispatch))
+        case evt @ GatewayMessage(GatewayOp.Dispatch, _, _) => //replayed messages
+          dispatcher(evt)
           resume //continue resuming
-      })
+      }
 
-      def dispatcher: Transition = state(payload => {
-        case GatewayOp.Dispatch =>
+      def dispatcher: Transition = transition {
+        case GatewayMessage(GatewayOp.Dispatch, Some(tpe), payload) =>
           try {
-            val a = this
-            GatewayEventParser.parse(payload) foreach listener.onGatewayEvent(GatewayConnectionImpl.this)
+            listener.onGatewayEvent(GatewayConnectionImpl.this)(GatewayEvents.GatewayEvent(
+              GatewayEvents.EventType.withValueOpt(tpe).getOrElse(GatewayEvents.EventType.Unknown), payload
+            ))
           } catch { case NonFatal(e) => listener.onConnectionError(GatewayConnectionImpl.this, e) }
           dispatcher
-        case GatewayOp.Reconnect =>
+        case GatewayMessage(GatewayOp.Reconnect, _, _) =>
           reconnect(RequestedByServer)
           done
-      })
+      }
     }
 
     override def onError(ex): Unit = listener.onConnectionError(this, ex)
     override def onMessage(msg: String): Unit = {
-      val payload = parseJson(msg).dyn
+      //do basic stream parsing to obtain general headers, the idea is to avoid computation as much as possible here.
+
+      val parser = (p: JsonParser.Parser) => {
+        import JsonParser._
+        @tailrec def parse(seq: Option[Long] = None, op: Int = -1, tpe: Option[String] = None): (Option[Long], Int, Option[String]) = p.nextToken match {
+          case End => (seq, op, tpe)
+          case FieldStart("t") => p.nextToken match {
+            case StringVal(tpe) => parse(seq, op, Some(tpe))
+            case _ => p.fail("event type not a string")
+          }
+          case FieldStart("s") => p.nextToken match {
+            case LongVal(seq) => parse(Some(seq), op, tpe)
+            case _ => p.fail("event type not a long")
+          }
+          case FieldStart("op") => p.nextToken match {
+            case LongVal(op) => parse(seq, op.toInt, tpe)
+            case _ => p.fail("op type not a long")
+          }
+          case _ => parse(seq, op, tpe)
+        }
+        parse()
+      }
 
       try {
+        val (s, op, tpe) = JsonParser.parse(msg, parser)
+        if (op == -1) throw new IllegalStateException("no option found in discrod message?\n" + msg)
+        lazy val payload = parseJson(msg).dyn
 
-        payload.s.extract[Option[Long]] foreach (seq = _)
-        GatewayOp.withValueOpt(payload.op.extract).fold {
-          listener.onUnexpectedGatewayOp(this, payload.op.extract, payload)
+        s foreach (seq = _)
+        GatewayOp.withValueOpt(op).fold {
+          listener.onUnexpectedGatewayOp(this, op, payload)
         } { op =>
 
           listener.onGatewayOp(this, op, payload)
-          stateMachine.orElse[(DynJValueSelector, GatewayOp), Unit] {
-            case (_, GatewayOp.Heartbeat) => send(renderJson(("op" -> GatewayOp.Heartbeat.value) ~ ("d" -> seq)))
-            case (_, GatewayOp.Dispatch) =>
+          stateMachine.orElse[GatewayMessage, Unit] {
+            case GatewayMessage(GatewayOp.Heartbeat, _, _) => send(renderJson(("op" -> GatewayOp.Heartbeat.value) ~ ("d" -> seq)))
+            case GatewayMessage(GatewayOp.Dispatch, _, _) =>
             case _ =>
-          }.apply(payload -> op)
+          }.apply(GatewayMessage(op, tpe, () => payload))
         }
 
       } catch { case NonFatal(e) => listener.onConnectionError(this, e) }
@@ -223,7 +248,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
           }, heartbeatTimeout, SECONDS)
 
           lazy val detectHeartbeatAck: stateMachine.Transition = stateMachine.transition {
-            case (_, GatewayOp.HeartbeatAck) =>
+            case GatewayMessage(GatewayOp.HeartbeatAck, _, _) =>
               timeout.cancel()
               prevBehaviour
             case other if prevBehaviour.isDefinedAt(other) =>
