@@ -6,7 +6,7 @@ import java.nio.charset.Charset
 import java.time.Instant
 import java.util.Arrays
 import java.util.concurrent.{Executors, ThreadFactory}
-import org.asynchttpclient.{AsyncHttpClient, BoundRequestBuilder, DefaultAsyncHttpClient, Response, ws}
+import org.asynchttpclient.{AsyncHttpClient, BoundRequestBuilder, DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig, Response, ws}
 
 import org.json4s.JsonAST.JValue
 import org.json4s.JsonDSL._
@@ -16,12 +16,19 @@ import scala.util.control.NonFatal
 import Json4sUtils._
 import AhcUtils._
 
-class DiscordClient(val token: String, val listener: DiscordClient.DiscordListener, val ahc: AsyncHttpClient = new DefaultAsyncHttpClient()) extends GatewayConnectionSupport with VoiceConnectionSupport {
+class DiscordClient(val token: String, val listener: DiscordClient.DiscordListener, val ahc: AsyncHttpClient = new DefaultAsyncHttpClient(
+  new DefaultAsyncHttpClientConfig.Builder().setWebSocketMaxBufferSize(Int.MaxValue).
+    setWebSocketMaxFrameSize(Int.MaxValue).build()
+)) extends GatewayConnectionSupport with VoiceConnectionSupport {
   import DiscordClient._, DiscordConstants._
   private[discord] implicit val jsonFormats = org.json4s.DefaultFormats
   private[discord] val baseHeaders = Map[String, java.util.Collection[String]]("Authorization" -> Arrays.asList(s"Bot $token")).asJava
   private[discord] val timer = new HashedWheelTimer(
-    r => new Thread(null, r, "HashedWheelTimer", 48 * 1024),
+    { r =>
+      val t = new Thread(null, r, "HashedWheelTimer", 48 * 1024)
+      t.setDaemon(true)
+      t
+    },
     5, MILLISECONDS
   )
   def login(preferredShards: Option[Int] = None): Future[Seq[GatewayConnection]] = {
@@ -31,6 +38,9 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
 
         Future sequence (for (s <- 0 until expectedShards) yield startShard(gw, s, expectedShards))
     }
+  }
+  def close(): Unit = {
+    timer.stop()
   }
 
   def fetchGateway(): Future[(String, Int)] = request(ahc.prepareGet(GATEWAY).setHeaders(baseHeaders))(
@@ -72,6 +82,7 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
 
     def sendStatusUpdate(idleSince: Option[Instant], status: Status): Unit
     def sendVoiceStateUpdate(guildId: String, channelId: Option[String], selfMute: Boolean, selfDeaf: Boolean): Unit
+    def sendRequestGuildMembers(guildId: String, query: String = "", limit: Int = 0): Unit
   }
 
   trait VoiceConnection extends Connection {

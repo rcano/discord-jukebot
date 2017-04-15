@@ -8,15 +8,14 @@ import java.util.Arrays
 import java.util.zip.InflaterInputStream
 import org.asynchttpclient.ws
 
-import org.json4s.JInt
-import org.json4s.JsonAST.JValue
+import org.json4s.JsonAST.{JValue, JInt}
 import org.json4s.JsonDSL._
 import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
-import Json4sUtils._
-import AhcUtils._
 import scala.util.control.NoStackTrace
 import scala.util.control.NonFatal
+import Json4sUtils._
+import AhcUtils._
 
 private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
   import DiscordClient._
@@ -185,7 +184,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
         ("d" -> data)
     }
 
-    def sendStatusUpdate(idleSince: Option[Instant], status: Status): Unit = {
+    override def sendStatusUpdate(idleSince: Option[Instant], status: Status): Unit = {
       send(renderJson(
         gatewayMessage(GatewayOp.StatusUpdate, ("idle_since" -> idleSince.map(e => JInt(e.toEpochMilli)).orNull) ~ ("game" -> (status match {
           case Status.PlayingGame(game) => ("name" -> game): JValue
@@ -194,7 +193,12 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
         })), Some("STATUS_UPDATE"))
       ))
     }
-    def sendVoiceStateUpdate(guildId: String, channelId: Option[String], selfMute: Boolean, selfDeaf: Boolean): Unit = {
+    override def sendRequestGuildMembers(guildId: String, query: String = "", limit: Int = 0): Unit = {
+      send(renderJson(
+        gatewayMessage(GatewayOp.RequestGuildMembers, ("guild_id" -> guildId) ~ ("query" -> query) ~ ("limit" -> limit))
+      ))
+    }
+    override def sendVoiceStateUpdate(guildId: String, channelId: Option[String], selfMute: Boolean, selfDeaf: Boolean): Unit = {
       send(renderJson(
         gatewayMessage(GatewayOp.VoiceStateUpdate, ("guild_id" -> guildId) ~ ("channel_id" -> channelId.orNull) ~
           ("self_mute" -> selfMute) ~ ("self_deaf" -> selfDeaf), Some("VOICE_STATE_UPDATE"))
@@ -210,12 +214,13 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
           val now = System.currentTimeMillis
           val prevBehaviour = stateMachine.current
 
+          val heartbeatTimeout = (interval * 0.8).toInt.millis.toSeconds
           val timeout = timer.newTimeout({ timeout =>
             if (!timeout.isCancelled && isActive) {
-              listener.onConnectionError(this, new RuntimeException("Did not receive a HeartbeatAck in 5 seconds!") with NoStackTrace)
+              listener.onConnectionError(this, new RuntimeException(s"Did not receive a HeartbeatAck in ${heartbeatTimeout} seconds!") with NoStackTrace)
               reconnect(HeartbeatMissed)
             }
-          }, 5, SECONDS)
+          }, heartbeatTimeout, SECONDS)
 
           lazy val detectHeartbeatAck: stateMachine.Transition = stateMachine.transition {
             case (_, GatewayOp.HeartbeatAck) =>
