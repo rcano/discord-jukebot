@@ -248,10 +248,10 @@ object DiscordClient {
     def onGatewayEvent(connection: DiscordClient#GatewayConnection): GatewayEvents.GatewayEvent => Any
 
     def onGatewayData(data: => DynJValueSelector): Unit = {}
-    def onGatewayOp(connection: DiscordClient#GatewayConnection, op: => GatewayOp, data: => DynJValueSelector): Unit = {}
-    def onVoiceOp(connection: DiscordClient#VoiceConnection, op: VoiceOp, data: DynJValueSelector): Unit = {}
+    def onGatewayOp(connection: DiscordClient#GatewayConnection, op: GatewayOp, data: => DynJValueSelector): Unit = {}
+    def onVoiceOp(connection: DiscordClient#VoiceConnection, op: VoiceOp, data: => DynJValueSelector): Unit = {}
     def onUnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: => DynJValueSelector): Unit = {}
-    def onUnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: DynJValueSelector): Unit = {}
+    def onUnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: => DynJValueSelector): Unit = {}
     def onMessageBeingSent(connection: DiscordClient#Connection, msg: String): Unit = {}
 
     def onReconnecting(connection: DiscordClient#Connection, rason: ReconnectReason): Unit = {}
@@ -268,10 +268,10 @@ object DiscordClient {
     import DiscordListenerStateMachine.Event
     case class GatewayEvent(connection: DiscordClient#GatewayConnection, event: GatewayEvents.GatewayEvent) extends Event
     case class GatewayData(data: DynJValueSelector) extends Event
-    case class GatewayOp(connection: DiscordClient#GatewayConnection, op: discord.GatewayOp, data: DynJValueSelector) extends Event
-    case class VoiceOp(connection: DiscordClient#VoiceConnection, op: discord.VoiceOp, data: DynJValueSelector) extends Event
-    case class UnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: DynJValueSelector) extends Event
-    case class UnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: DynJValueSelector) extends Event
+    case class GatewayOp(connection: DiscordClient#GatewayConnection, op: discord.GatewayOp, data: () => DynJValueSelector) extends Event
+    case class VoiceOp(connection: DiscordClient#VoiceConnection, op: discord.VoiceOp, data: () => DynJValueSelector) extends Event
+    case class UnexpectedGatewayOp(connection: DiscordClient#GatewayConnection, op: Int, data: () => DynJValueSelector) extends Event
+    case class UnexpectedVoiceOp(connection: DiscordClient#VoiceConnection, op: Int, data: () => DynJValueSelector) extends Event
     case class MessageBeingSent(connection: DiscordClient#Connection, msg: String) extends Event
     case class Reconnecting(connection: DiscordClient#Connection, reason: ReconnectReason) extends Event
     case class ConnectionOpened(connection: DiscordClient#Connection) extends Event
@@ -287,10 +287,10 @@ object DiscordClient {
 
     override def onGatewayEvent(connection) = evt => run(GatewayEvent(connection, evt))
     override def onGatewayData(data): Unit = run(GatewayData(data))
-    override def onGatewayOp(connection, op, data): Unit = run(GatewayOp(connection, op, data))
-    override def onVoiceOp(connection, op, data): Unit = run(VoiceOp(connection, op, data))
-    override def onUnexpectedGatewayOp(connection, op, data): Unit = run(UnexpectedGatewayOp(connection, op, data))
-    override def onUnexpectedVoiceOp(connection, op, data): Unit = run(UnexpectedVoiceOp(connection, op, data))
+    override def onGatewayOp(connection, op, data): Unit = run(GatewayOp(connection, op, () => data))
+    override def onVoiceOp(connection, op, data): Unit = run(VoiceOp(connection, op, () => data))
+    override def onUnexpectedGatewayOp(connection, op, data): Unit = run(UnexpectedGatewayOp(connection, op, () => data))
+    override def onUnexpectedVoiceOp(connection, op, data): Unit = run(UnexpectedVoiceOp(connection, op, () => data))
     override def onMessageBeingSent(connection, msg): Unit = run(MessageBeingSent(connection, msg))
     override def onReconnecting(connection, reason): Unit = run(Reconnecting(connection, reason))
     override def onConnectionOpened(connection): Unit = run(ConnectionOpened(connection))
