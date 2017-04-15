@@ -151,29 +151,32 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
 
       val parser = (p: JsonParser.Parser) => {
         import JsonParser._
-        @tailrec def parse(seq: Option[Long] = None, op: Int = -1, tpe: Option[String] = None): (Option[Long], Int, Option[String]) = p.nextToken match {
-          case End => (seq, op, tpe)
-          case FieldStart("t") => p.nextToken match {
-            case StringVal(tpe) => parse(seq, op, Some(tpe))
-            case NullVal => parse(seq, op, None)
-            case _ => p.fail("event type not a string")
+        @tailrec def parse(seq: Option[Long] = null, op: Int = -1, tpe: Option[String] = null): (Option[Long], Int, Option[String]) = {
+          if (seq != null && op != -1 && tpe != null) (seq, op, tpe)
+          else p.nextToken match {
+            case End => (if (seq eq null) None else seq, op, if (tpe eq null) None else tpe)
+            case FieldStart("t") => p.nextToken match {
+                case StringVal(tpe) => parse(seq, op, Some(tpe))
+                case NullVal => parse(seq, op, None)
+                case _ => p.fail("event type not a string")
+              }
+            case FieldStart("s") => p.nextToken match {
+                case LongVal(seq) => parse(Some(seq), op, tpe)
+                case IntVal(seq) => parse(Some(seq.intValue), op, tpe)
+                case NullVal => parse(None, op, tpe)
+                case _ => p.fail("event type not a long")
+              }
+            case FieldStart("op") => p.nextToken match {
+                case LongVal(op) => parse(seq, op.toInt, tpe)
+                case IntVal(op) => parse(seq, op.intValue, tpe)
+                case _ => p.fail("op type not a long")
+              }
+            case _ => parse(seq, op, tpe)
           }
-          case FieldStart("s") => p.nextToken match {
-            case LongVal(seq) => parse(Some(seq), op, tpe)
-            case IntVal(seq) => parse(Some(seq.intValue), op, tpe)
-            case NullVal => parse(None, op, tpe)
-            case _ => p.fail("event type not a long")
-          }
-          case FieldStart("op") => p.nextToken match {
-            case LongVal(op) => parse(seq, op.toInt, tpe)
-            case IntVal(op) => parse(seq, op.intValue, tpe)
-            case _ => p.fail("op type not a long")
-          }
-          case _ => parse(seq, op, tpe)
         }
         parse()
       }
-
+      
       try {
         val (s, op, tpe) = JsonParser.parse(msg, parser)
         if (op == -1) throw new IllegalStateException("no option found in discrod message?\n" + msg)
