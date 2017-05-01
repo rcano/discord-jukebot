@@ -122,22 +122,30 @@ object Bot extends App {
     val me = s"<@${info.user.id}>"
     override def toString = s"BotData($gateway)"
     def withUpdatedConnectoin(conn: DiscordClient#GatewayConnection): BotData = {
-      val updatedGuilds = guilds.map { case (g, gsm) => g -> new GuildStateMachine(gsm.me, conn, g) }
-      copy(gateway = conn, guilds = updatedGuilds)
+      guilds.foreach { case (g, gsm) => gsm(UpdateGatewayConnection(conn)) }
+      copy(gateway = conn)
     }
   }
   private case object RejoinVoiceChannel
   private case object LeaveVoiceChannel
-  class GuildStateMachine(val me: String, val gateway: DiscordClient#GatewayConnection, val guild: GatewayEvents.Guild) extends StateMachine[Any] {
-    def initState = messageHandling(None, Vector.empty)
+  private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
+  class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
+    case class GuildData(
+      me: String,
+      gateway: DiscordClient#GatewayConnection,
+      guild: GatewayEvents.Guild,
+      voiceConnection: Option[DiscordClient#VoiceConnection],
+      subscribers: Seq[Subscription]
+    )
+    def initState = messageHandling(GuildData(initialMe, initialGateway, initialGuild, None, Seq.empty))
 
     case class Subscription(msg: Message)
     case class Unsubscription(msg: Message)
     case class UpdateStatus(status: String)
-    def messageHandling(voiceConnection: Option[DiscordClient#VoiceConnection], subscribers: Seq[Subscription]): Transition = transition {
+    def messageHandling(guildData: GuildData): Transition = transition {
       case msg: Message =>
         try {
-          val cmd = msg.content.stripPrefix(me).replaceFirst("^[,:]?\\s+", "")
+          val cmd = msg.content.stripPrefix(guildData.me).replaceFirst("^[,:]?\\s+", "")
           commands.find(_.action(msg).isDefinedAt(cmd)) match {
             case Some(command) => command.action(msg)(cmd)
             case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
@@ -148,25 +156,26 @@ object Bot extends App {
         current
 
       case RejoinVoiceChannel =>
-        voiceConnection foreach { vc =>
+        guildData.voiceConnection foreach { vc =>
           vc.close()
-          gateway.sendVoiceStateUpdate(guild.id, None, false, true)
+          guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, None, false, true)
         }
-        setupVoiceChannel(c => messageHandling(Some(c), subscribers))
+        setupVoiceChannel(guildData, c => messageHandling(guildData.copy(voiceConnection = Some(c))))
+      case UpdateGatewayConnection(conn) => messageHandling(guildData.copy(gateway = conn))(RejoinVoiceChannel)
 
-      case sub @ Subscription(msg) if !subscribers.exists(_.msg.author.id == msg.author.id) =>
-        messageHandling(voiceConnection, subscribers :+ sub)
-      case sub @ Unsubscription(msg) if subscribers.exists(_.msg.author.id == msg.author.id) =>
-        messageHandling(voiceConnection, subscribers.filterNot(_.msg.author.id == msg.author.id))
+      case sub @ Subscription(msg) if !guildData.subscribers.exists(_.msg.author.id == msg.author.id) =>
+        messageHandling(guildData.copy(subscribers = guildData.subscribers :+ sub))
+      case sub @ Unsubscription(msg) if guildData.subscribers.exists(_.msg.author.id == msg.author.id) =>
+        messageHandling(guildData.copy(subscribers = guildData.subscribers.filterNot(_.msg.author.id == msg.author.id)))
 
       case UpdateStatus(status) =>
-        subscribers.foreach(s => messageSender.reply(s.msg, status))
+        guildData.subscribers.foreach(s => messageSender.reply(s.msg, status))
         current
     }
 
-    def setupVoiceChannel(nextState: DiscordClient#VoiceConnection => Transition): Transition = {
-      gateway.sendVoiceStateUpdate(guild.id, None, false, true)
-      gateway.sendVoiceStateUpdate(guild.id, guild.channels.find(_.name equalsIgnoreCase clargs.channel).map(_.id), false, true)
+    def setupVoiceChannel(guildData: GuildData, nextState: DiscordClient#VoiceConnection => Transition): Transition = {
+      guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, None, false, true)
+      guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, guildData.guild.channels.find(_.name equalsIgnoreCase clargs.channel).map(_.id), false, true)
       transition {
         case ourVoiceState: GatewayEvents.VoiceStateUpdate if ourVoiceState.voiceState.channelId.isDefined =>
           println("voice state received, waiting for voice server udpate")
@@ -174,7 +183,7 @@ object Bot extends App {
             case vsu: GatewayEvents.VoiceServerUpdate =>
               println("establishing websocket to " + ourVoiceState.voiceState.channelId.get)
               val noData = new Array[Byte](0)
-              gateway.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => (), { () =>
+              guildData.gateway.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => (), { () =>
                 val frame = ap.provide()
                 if (frame == null) noData else frame.data
               })
