@@ -107,7 +107,12 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
               else seq = (seq + 1).toChar
 
               try socket.send(new DatagramPacket(data, data.length))
-              catch { case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e) }
+              catch {
+                case e: IOException =>
+                  listener.onConnectionError(VoiceConnectionImpl.this, e)
+                  close()
+                  onClose(websocket)
+              }
               sendingAudio = true
             } else if (sendingAudio) {
               send(renderJson(gatewayMessage(VoiceOp.Speaking, ("delay" -> 0) ~ ("speaking" -> false))))
@@ -192,7 +197,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           val prevBehaviour = stateMachine.current
 
           val timeout = timer.newTimeout({ timeout =>
-            if (!timeout.isCancelled) {
+            if (!timeout.isCancelled && isActive) {
               listener.onConnectionError(this, new RuntimeException("Did not receive a HeartbeatAck in 5 seconds!") with NoStackTrace)
               close()
               onClose(websocket)
