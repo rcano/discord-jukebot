@@ -5,6 +5,9 @@ import com.sedmelluq.discord.lavaplayer.player.event._
 import com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
+import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame
+import io.netty.util.HashedWheelTimer
+import io.netty.util.TimerTask
 import jukebox.discord._
 import org.json4s.native.JsonMethods.{pretty, render}
 import scala.collection.JavaConverters._
@@ -24,6 +27,7 @@ object Bot extends App {
   audioPlayerManager.getConfiguration.setResamplingQuality(AudioConfiguration.ResamplingQuality.LOW)
   audioPlayerManager.registerSourceManager(new YoutubeAudioSourceManager())
   audioPlayerManager.registerSourceManager(new LocalAudioSourceManager())
+  audioPlayerManager.setPlayerCleanupThreshold(Long.MaxValue)
 
   val noData = new Array[Byte](0)
 
@@ -94,7 +98,14 @@ object Bot extends App {
         current
 
       case ConnectionError(conn: DiscordClient#VoiceConnection, err) =>
-        println(s"Exception closed Voice conn $conn: $err")
+        println(s"Exception closed Voice conn $conn: $err\n" + err.getStackTrace.mkString("\n"))
+        data.guilds.find(_._1.id == conn.guildId).fold {
+          println(s"Could not find guild id ${conn.guildId} among guilds ${data.guilds.keys.map(g => g.name -> g.id)}")
+        } {
+          case (guild, gsm) =>
+            println(s"pausing audio player for guild ${guild.name}")
+            gsm.ap.setPaused(true) //stop the underlying player, when the connection resumes, it'll go back to the appropriate state
+        }
         current
       case Disconnected(conn: DiscordClient#VoiceConnection, code, reason) =>
         println(s"Voice conn $conn disconnected $code: $reason")
@@ -130,18 +141,21 @@ object Bot extends App {
   private case object LeaveVoiceChannel
   private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
   class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
+    println(Console.RED + s"State machine initiated for $initialMe, conn $initialGateway, guild ${initialGuild.name}" + Console.RESET)
     case class GuildData(
       me: String,
       gateway: DiscordClient#GatewayConnection,
       guild: GatewayEvents.Guild,
       voiceConnection: Option[DiscordClient#VoiceConnection],
-      subscribers: Seq[Subscription]
+      subscribers: Seq[Subscription],
+      paused: Boolean = false
     )
     def initState = messageHandling(GuildData(initialMe, initialGateway, initialGuild, None, Seq.empty))
 
     case class Subscription(msg: Message)
     case class Unsubscription(msg: Message)
     case class UpdateStatus(status: String)
+    case class SetPaused(paused: Boolean)
     def messageHandling(guildData: GuildData): Transition = transition {
       case msg: Message =>
         try {
@@ -168,6 +182,8 @@ object Bot extends App {
       case sub @ Unsubscription(msg) if guildData.subscribers.exists(_.msg.author.id == msg.author.id) =>
         messageHandling(guildData.copy(subscribers = guildData.subscribers.filterNot(_.msg.author.id == msg.author.id)))
 
+      case SetPaused(paused) => messageHandling(guildData.copy(paused = paused))
+
       case UpdateStatus(status) =>
         guildData.subscribers.foreach(s => messageSender.reply(s.msg, status))
         current
@@ -182,12 +198,16 @@ object Bot extends App {
           transition {
             case vsu: GatewayEvents.VoiceServerUpdate =>
               println("establishing websocket to " + ourVoiceState.voiceState.channelId.get)
-              val noData = new Array[Byte](0)
               guildData.gateway.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => (), { () =>
                 val frame = ap.provide()
                 if (frame == null) noData else frame.data
               })
-              transition { case conn: DiscordClient#VoiceConnection => nextState(conn) }
+              transition {
+                case conn: DiscordClient#VoiceConnection =>
+                  println(s"resuming player to paused state ${guildData.paused}")
+                  ap.setPaused(guildData.paused)
+                  nextState(conn)
+              }
           }
       }
     }
@@ -217,22 +237,28 @@ object Bot extends App {
       }
       def skip(): Unit = _tracks.headOption.fold(ap.playTrack(null))(t => ap.playTrack(t._1))
       def size = _tracks.size
-      def onEvent(evt) = evt match {
-        case evt: TrackStartEvent =>
-          _tracks -= evt.track
-          updatePlayingTrack()
+      def onEvent(evt) = scala.util.Try {
+        evt match {
+          case evt: TrackStartEvent =>
+            _tracks -= evt.track
+            updatePlayingTrack()
 
-        case evt: TrackEndEvent =>
-          if (evt.endReason.mayStartNext) _tracks.headOption.fold(updatePlayingTrack())(t => ap.playTrack(t._1))
-          else updatePlayingTrack()
-        case evt: TrackExceptionEvent =>
-          val originalMessage = _tracks(evt.track)
-          messageSender.reply(originalMessage, "Failed processing track " + evt.track.getInfo.title + " due to " + evt.exception)
-          _tracks -= evt.track
-          _tracks.headOption.fold(updatePlayingTrack())(t => ap.playTrack(t._1))
-          evt.exception.printStackTrace()
-        case other => println("other ap event: " + other)
-      }
+          case evt: TrackEndEvent =>
+            println("Event ended " + evt.track.getInfo.title)
+            if (evt.endReason.mayStartNext) _tracks.headOption.fold(updatePlayingTrack())(t => ap.playTrack(t._1))
+            else {
+              println(Console.RED + "not allowed to play next track?" + Console.RESET)
+              updatePlayingTrack()
+            }
+          case evt: TrackExceptionEvent =>
+            val originalMessage = _tracks(evt.track)
+            messageSender.reply(originalMessage, "Failed processing track " + evt.track.getInfo.title + " due to " + evt.exception)
+            _tracks -= evt.track
+            _tracks.headOption.fold(updatePlayingTrack())(t => ap.playTrack(t._1))
+            evt.exception.printStackTrace()
+          case other => println(Console.CYAN + "other ap event: " + other + Console.RESET)
+        }
+      }.failed foreach (_.printStackTrace())
     }
     ap.addListener(Playlist)
 
@@ -271,12 +297,14 @@ object Bot extends App {
     commands += Command("pause/stop", "pause the currently playing song")(msg => {
       case "pause" | "stop" =>
         ap.setPaused(true)
+        applyIfDefined(SetPaused(true))
         messageSender.reply(msg, "_paused_")
         updateStatus("paused")
     })
     commands += Command("unpause/resume/play", "resumes playing the song")(msg => {
       case "unpause" | "resume" | "play" =>
         ap.setPaused(false)
+        applyIfDefined(SetPaused(false))
         messageSender.reply(msg, "_unpaused_")
         updatePlayingTrack()
     })
