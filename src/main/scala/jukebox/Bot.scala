@@ -5,15 +5,11 @@ import com.sedmelluq.discord.lavaplayer.player.event._
 import com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
-import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame
-import io.netty.util.HashedWheelTimer
-import io.netty.util.TimerTask
 import jukebox.discord._
 import org.json4s.native.JsonMethods.{pretty, render}
+import regex._
 import scala.collection.JavaConverters._
-import scala.concurrent._, duration._
-
-import RegexExtractor._
+import scala.concurrent._, duration._, ExecutionContext.Implicits._
 
 object Bot extends App {
 
@@ -142,26 +138,27 @@ object Bot extends App {
   private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
   class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
     println(Console.RED + s"State machine initiated for $initialMe, conn $initialGateway, guild ${initialGuild.name}" + Console.RESET)
+
     case class GuildData(
       me: String,
       gateway: DiscordClient#GatewayConnection,
       guild: GatewayEvents.Guild,
       voiceConnection: Option[DiscordClient#VoiceConnection],
       subscribers: Seq[Subscription],
-      paused: Boolean = false
+      paused: Boolean = false,
+      processing: Option[SyncVar[Unit]] = None
     )
     def initState = messageHandling(GuildData(initialMe, initialGateway, initialGuild, None, Seq.empty))
 
     case class Subscription(msg: Message)
-    case class Unsubscription(msg: Message)
     case class UpdateStatus(status: String)
     case class SetPaused(paused: Boolean)
     def messageHandling(guildData: GuildData): Transition = transition {
       case msg: Message =>
         try {
           val cmd = msg.content.stripPrefix(guildData.me).replaceFirst("^[,:]?\\s+", "")
-          commands.find(_.action(msg).isDefinedAt(cmd)) match {
-            case Some(command) => command.action(msg)(cmd)
+          commands.find(_.action(guildData, msg).isDefinedAt(cmd)) match {
+            case Some(command) => command.action(guildData, msg)(cmd)
             case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
           }
         } catch {
@@ -177,10 +174,7 @@ object Bot extends App {
         setupVoiceChannel(guildData, c => messageHandling(guildData.copy(voiceConnection = Some(c))))
       case UpdateGatewayConnection(conn) => messageHandling(guildData.copy(gateway = conn))(RejoinVoiceChannel)
 
-      case sub @ Subscription(msg) if !guildData.subscribers.exists(_.msg.author.id == msg.author.id) =>
-        messageHandling(guildData.copy(subscribers = guildData.subscribers :+ sub))
-      case sub @ Unsubscription(msg) if guildData.subscribers.exists(_.msg.author.id == msg.author.id) =>
-        messageHandling(guildData.copy(subscribers = guildData.subscribers.filterNot(_.msg.author.id == msg.author.id)))
+      case gd: GuildData => messageHandling(gd)
 
       case SetPaused(paused) => messageHandling(guildData.copy(paused = paused))
 
@@ -214,6 +208,7 @@ object Bot extends App {
 
     def rejoinMusicChannel(): Unit = applyIfDefined(RejoinVoiceChannel)
     def updateStatus(status: String): Unit = applyIfDefined(UpdateStatus(status))
+    def updateState(gd: GuildData) = apply(gd)
 
     val ap = audioPlayerManager.createPlayer()
     object Playlist extends AudioEventListener {
@@ -265,43 +260,47 @@ object Bot extends App {
     def updatePlayingTrack(): Unit = { //repurposed for the subscription system
       ap.getPlayingTrack match {
         case null => updateStatus("idle")
-        case track => updateStatus(track.getInfo.title + "\nnow playing:" + track.getInfo.identifier)
+        case track => updateStatus(track.getInfo.title + "\nnow playing:" + track.getInfo.uri)
       }
     }
 
     val commands = collection.mutable.ListBuffer[Command]()
-    case class Command(name: String, description: String)(val action: Message => PartialFunction[String, Any])
+    case class Command(name: String, description: String)(val action: (GuildData, Message) => PartialFunction[String, Any])
 
-    commands += Command("status", "shows what I'm currently playing and pending.")(msg => {
+    commands += Command("status", "shows what I'm currently playing and pending.")((_, msg) => {
       case "status" =>
         messageSender.reply(msg, if (ap.getPlayingTrack == null) "Nothing is being played."
         else {
           val track = ap.getPlayingTrack
           val metadata = track.getInfo
-          s"Currently playing ${metadata.title} - ${millisToString(track.getPosition)}/${millisToString(track.getDuration)}. ${Playlist.size} remaining tracks.\n${metadata.identifier}"
+          s"Currently playing ${metadata.title} - ${millisToString(track.getPosition)}/${millisToString(track.getDuration)}. ${Playlist.size} remaining tracks.\n${metadata.uri}"
         })
     })
 
-    commands += Command("list[ full]", "shows the remaining list of songs to be played.")(msg => {
+    commands += Command("list[ full]", "shows the remaining list of songs to be played.")((_, msg) => {
       case "list" | "list full" if Playlist.size == 0 && ap.getPlayingTrack == null => messageSender.reply(msg, "Nothing in the queue")
       case cmd @ ("list" | "list full") =>
         val full = cmd.endsWith("full")
         val songs = Option(ap.getPlayingTrack) ++ Playlist.tracks.keys
         val songsInfo = songs.zipWithIndex.map(e => e._2 + ": " + e._1.getInfo.title +
-          (if (full) " - " + e._1.getInfo.identifier else ""))
+          (if (full) " - " + e._1.getInfo.uri else ""))
         val totalTime = songs.map(_.getDuration).sum
         messageSender.reply(msg, s"Playlist total time ${millisToString(totalTime)}")
         songsInfo foreach (messageSender.reply(msg, _))
+
+      case "list for add" =>
+        val songs = (Option(ap.getPlayingTrack) ++ Playlist.tracks.keys).map(_.getInfo.uri)
+        messageSender.reply(msg, songs.mkString(" "))
     })
 
-    commands += Command("pause/stop", "pause the currently playing song")(msg => {
+    commands += Command("pause/stop", "pause the currently playing song")((_, msg) => {
       case "pause" | "stop" =>
         ap.setPaused(true)
         applyIfDefined(SetPaused(true))
         messageSender.reply(msg, "_paused_")
         updateStatus("paused")
     })
-    commands += Command("unpause/resume/play", "resumes playing the song")(msg => {
+    commands += Command("unpause/resume/play", "resumes playing the song")((_, msg) => {
       case "unpause" | "resume" | "play" =>
         ap.setPaused(false)
         applyIfDefined(SetPaused(false))
@@ -309,13 +308,13 @@ object Bot extends App {
         updatePlayingTrack()
     })
 
-    commands += Command("shuffle", "shuffles the playlist")(msg => {
+    commands += Command("shuffle", "shuffles the playlist")((_, msg) => {
       case "shuffle" =>
         Playlist.shuffle()
         messageSender.reply(msg, "_shuffled_")
     })
 
-    commands += Command("skip", "skips this song")(msg => {
+    commands += Command("skip", "skips this song")((_, msg) => {
       case "skip" =>
         Playlist.skip()
         ap.getPlayingTrack match {
@@ -324,9 +323,9 @@ object Bot extends App {
           case song => messageSender.reply(msg, s"_skipped to ${song.getInfo.title}_")
         }
     })
-    commands += Command("skip to <index>", "skips to the specified song")(msg => {
-      case regex"skip to (.+)$where" => where match {
-        case regex"""(\d+)$num""" =>
+    commands += Command("skip to <index>", "skips to the specified song")((_, msg) => {
+      case gr"skip to $where(.+)" => where match {
+        case gr"""$num(\d+)""" =>
           if (Playlist.size == 0) messageSender.reply(msg, "There is nothing to skip to. Try adding some songs to the playlist with the `add` command.")
           else if (num == 0) messageSender.reply(msg, "Already playing that song")
           else {
@@ -340,7 +339,7 @@ object Bot extends App {
       }
     })
 
-    //  commands += Command("add livestream <url>", "Adds a livestream to the playlist. Note that duration of this is unknown.")(msg => {
+    //  commands += Command("add livestream <url>", "Adds a livestream to the playlist. Note that duration of this is unknown.")((_, msg) => {
     //      case regex"""add livestream (\w+://[^ ]+)$url(?: (.+))?$options""" =>
     //        messageSender.reply(msg, "_adding " + url + " with options " + options + "_")
     //        LiveStreamTrack.fetchMetadata(url, Option(options)).map { song =>
@@ -351,14 +350,14 @@ object Bot extends App {
     //        }.failed.foreach(e => messageSender.reply(msg, s"Failed: $e"))
     //    })
 
-    commands += Command("add <url>", "Adds the given song to the queue.")(msg => {
-      case regex"add (.+)$url" => url match {
-        case regex"(https?://.+|)$url" =>
+    commands += Command("add <urls...>", "Adds the given song(s) to the queue.")((_, msg) => {
+      case gr"""add $url(.+)""" => url.split("\\s+") foreach {
+        case gr"$url(https?://.+|)" =>
           messageSender.reply(msg, "_adding " + url + "_")
           audioPlayerManager.loadItemOrdered(ap, url, new AudioLoadResultHandler {
             override def trackLoaded(track) = {
               Playlist.queue(track, msg)
-              messageSender.reply(msg, "_added " + track.getInfo.title + " to the queue._")
+              messageSender.reply(msg, "*added " + track.getInfo.title + " to the queue.*")
             }
             override def playlistLoaded(playlist) = {
               playlist.getTracks.asScala foreach (Playlist.queue(_, msg))
@@ -371,19 +370,68 @@ object Bot extends App {
               ex.printStackTrace()
             }
           })
-        case other => messageSender.reply(msg, "for now I only support youtube links. Sorry.")
+        case other => messageSender.reply(msg, s"for now I only support youtube links. Sorry. [$other]")
       }
     })
 
-    commands += Command("clear", "Clears the remaining playlist.")(msg => {
+    commands += Command("search[ and add first] <query>", "Search Youtube with the given query. Optionally, instead of returning the list, add the first entry to the queue.")((gd, msg) => {
+      case gr"search $shouldAdd(and add first )?$query(.+)" =>
+        messageSender.reply(msg, "*searching...*")
+        YoutubeSearch(discordClient.ahc, query).onComplete {
+          case scala.util.Success(seq) =>
+            if (shouldAdd.isDefined) commands.find(_.name == "add <urls...>").get.action(gd, msg)("add " + seq.head._2)
+            else messageSender.reply(msg, seq.take(10).map(e => e._1 + " - " + e._2).mkString("\n"))
+          case scala.util.Failure(ex) => messageSender.reply(msg, s"Something went wrong: $ex")
+        }
+    })
+
+    commands += Command("make playlist from <song name>", "Uses Spotalike.com to build a playlist given the starting song. The found songs are then added to the queue")((gd, msg) => {
+      case gr"make playlist from $song(.+)" =>
+        if (gd.processing.isDefined) {
+          messageSender.reply(msg, "Sorry, I'm already processing a playlist request.")
+        } else {
+          messageSender.reply(msg, "*processing...*")
+          val spotalikeResult = Await.ready(Spotalike.generate(discordClient.ahc, song), Duration.Inf)
+          spotalikeResult.value.get match {
+            case scala.util.Success(seq) =>
+              val cancelProcessing = new SyncVar[Unit]()
+              updateState(gd.copy(processing = Some(cancelProcessing)))
+              new Thread(null, () => {
+                messageSender.reply(msg, "*obtaining urls from youtube...*")
+                val addCommand = commands.find(_.name == "add <urls...>").get
+                for (song <- seq if !cancelProcessing.isSet) {
+                  val res = Await.ready(YoutubeSearch(discordClient.ahc, song), Duration.Inf)
+                  res.value.get match {
+                    case scala.util.Success(song) => addCommand.action(gd, msg)("add " + song.head._2)
+                    case scala.util.Failure(ex) => messageSender.reply(msg, s"Something went wrong: $ex")
+                  }
+                }
+              }, "Processing playlist for " + song, 1024 * 200).start()
+            case scala.util.Failure(ex) => messageSender.reply(msg, s"Something went wrong: $ex")
+          }
+        }
+    })
+
+    commands += Command("cancel processing", "Makes me cancel the playlist currently being processed (if any).")((gd, msg) => {
+      case "cancel processing" =>
+        gd.processing.fold[Unit] {
+          messageSender.reply(msg, "nothing is being processed.")
+        } { canceller =>
+          canceller.put(())
+          updateState(gd.copy(processing = None))
+          messageSender.reply(msg, "cancelled.")
+        }
+    })
+
+    commands += Command("clear", "Clears the remaining playlist.")((_, msg) => {
       case "clear" =>
         val numberOfTracks = Playlist.tracks.size
         Playlist.clear()
         messageSender.reply(msg, s"_$numberOfTracks tracks removed._")
     })
 
-    commands += Command("remove range", "Removes all the song between the two specified indeces")(msg => {
-      case regex"""remove range (\d+)$n1 (\d+)$n2""" =>
+    commands += Command("remove range", "Removes all the song between the two specified indeces")((_, msg) => {
+      case gr"""remove range $n1(\d+) $n2(\d+)""" =>
         val from = n1.toInt
         val to = math.min(n2.toInt, Playlist.size)
         if (from > to) messageSender.reply(msg, s"$from is greater than $to ... :sweat:")
@@ -396,12 +444,12 @@ object Bot extends App {
           removedTracks foreach (t => messageSender.reply(msg, "_" + t + "_"))
         }
 
-      case regex"""remove range .*""" => messageSender.reply(msg, "I'm sorry, remove range only accepts a pair of naturals")
+      case gr"""remove range .*""" => messageSender.reply(msg, "I'm sorry, remove range only accepts a pair of naturals")
     })
-    commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")(msg => {
-      case regex"remove (.+)$what" =>
+    commands += Command("remove <index>", "Removes the specified index from the queue. (Use list to check first)")((_, msg) => {
+      case gr"remove $what(.+)" =>
         what match {
-          case regex"""(\d+)$n""" =>
+          case gr"""$n(\d+)""" =>
             val num = n.toInt
             if (num < 0) messageSender.reply(msg, "A negative number? :sweat:")
             else if (Playlist.size == 0) messageSender.reply(msg, "The playlist is empty.")
@@ -423,27 +471,22 @@ object Bot extends App {
         }
     })
 
-    commands += Command("rejoin", s"Makes me rejoin the voice channel ${clargs.channel} (as sometimes Discord bugs out).")(msg => {
+    commands += Command("rejoin", s"Makes me rejoin the voice channel ${clargs.channel} (as sometimes Discord bugs out).")((_, msg) => {
       case "rejoin" => applyIfDefined(RejoinVoiceChannel)
     })
-    //    commands += Command("kill yourself", s"Makes me die.")(msg => {
-    //      case "kill yourself" =>
-    //        DiscordHandlerSM.shutdown()
-    //        sys.exit(0)
-    //    })
 
-    commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")(msg => {
+    commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")((gd, msg) => {
       case "subscribe" =>
-        applyIfDefined(Subscription(msg))
         messageSender.reply(msg, "subscribed")
+        updateState(gd.copy(subscribers = gd.subscribers :+ Subscription(msg)))
     })
-    commands += Command("unsubscribe", "(bot only) Unsubscribes from status updates via DM.")(msg => {
+    commands += Command("unsubscribe", "(bot only) Unsubscribes from status updates via DM.")((gd, msg) => {
       case "unsubscribe" =>
-        applyIfDefined(Unsubscription(msg))
         messageSender.reply(msg, "unsubscribed")
+        updateState(gd.copy(subscribers = gd.subscribers.filterNot(_.msg.author.id == msg.author.id)))
     })
 
-    commands += Command("help", "Prints this message")(msg => {
+    commands += Command("help", "Prints this message")((_, msg) => {
       case "help" =>
         val maxCmdWidth = commands.map(_.name.length).max
         val helpString = new StringBuilder
