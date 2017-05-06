@@ -22,6 +22,8 @@ libraryDependencies ++= Seq(
 enablePlugins(JavaAppPackaging)
 mainClass in Compile := Some("jukebox.Bot")
 javaOptions in Universal ++= Seq("-J-Xmx24m")
+mappings in (Compile, packageDoc) := Seq()
+
 
 scalariformPreferences := scalariformPreferences.value.setPreference(scalariform.formatter.preferences.SpacesAroundMultiImports, false)
 
