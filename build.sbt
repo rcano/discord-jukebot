@@ -35,10 +35,3 @@ dependsOn(`json4s-advanced-serializers`)
 
 lazy val `json4s-advanced-serializers` = project
 
-assemblyShadeRules in assembly := Seq(ShadeRule.keep("jukebox.**").inAll)
-assemblyMergeStrategy in assembly := {
-  case PathList("META-INF", "io.netty.versions.properties") => MergeStrategy.filterDistinctLines
-  case other => 
-   val prev = (assemblyMergeStrategy in assembly).value
-   prev(other)
-}
