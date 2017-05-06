@@ -10,7 +10,7 @@ import scala.concurrent._, duration._
  * Helper utility class that follows a rate/s buffering system to send messages.
  */
 class DiscordRateHonoringSender(client: DiscordClient) {
-  private final val MaxSize = 1500
+  private final val MaxSize = 1999
   private val scheduler = Executors.newSingleThreadScheduledExecutor()
   private type ChannelId = String
   private type UserId = String
