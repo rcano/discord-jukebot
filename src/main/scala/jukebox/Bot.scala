@@ -397,15 +397,17 @@ object Bot extends App {
               val cancelProcessing = new SyncVar[Unit]()
               updateState(gd.copy(processing = Some(cancelProcessing)))
               new Thread(null, () => {
-                messageSender.reply(msg, "*obtaining urls from youtube...*")
+                messageSender.reply(msg, s"*obtaining urls from youtube for\n${seq.mkString("\n")}...*")
                 val addCommand = commands.find(_.name == "add <urls...>").get
                 for (song <- seq if !cancelProcessing.isSet) {
+                  println("Waiting on " + song)
                   val res = Await.ready(YoutubeSearch(discordClient.ahc, song), Duration.Inf)
                   res.value.get match {
                     case scala.util.Success(song) => addCommand.action(gd, msg)("add " + song.head._2)
                     case scala.util.Failure(ex) => messageSender.reply(msg, s"Something went wrong: $ex")
                   }
                 }
+                if (!cancelProcessing.isSet) updateState(gd.copy(processing = None))
               }, "Processing playlist for " + song, 1024 * 200).start()
             case scala.util.Failure(ex) => messageSender.reply(msg, s"Something went wrong: $ex")
           }
