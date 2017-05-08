@@ -480,7 +480,7 @@ object Bot extends App {
     commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")((gd, msg) => {
       case "subscribe" =>
         messageSender.reply(msg, "subscribed")
-        if (!gd.subscribers.exists(_.msg.author.id == msg.id))
+        if (!gd.subscribers.exists(_.msg.author.id == msg.author.id))
           updateState(gd.copy(subscribers = gd.subscribers :+ Subscription(msg)))
     })
     commands += Command("unsubscribe", "(bot only) Unsubscribes from status updates via DM.")((gd, msg) => {
