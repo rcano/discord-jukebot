@@ -499,7 +499,20 @@ object Bot extends App {
   }
 
   val discordClient = new DiscordClient(clargs.discordToken, DiscordHandlerSM)
-  val messageSender = new DiscordRateHonoringSender(discordClient)
+  val messageSender = new DiscordRateHonoringSender(discordClient) {
+    override def send(channel: discord.Channel, msg: String): Future[Unit] = {
+      super.send(channel, msg) andThen logErrors
+    }
+    override def send(channelId: ChannelId, msg: String): Future[Unit] = {
+      super.send(channelId, msg) andThen logErrors
+    }
+    override def reply(to: Message, msg: String): Future[Unit] = {
+      super.reply(to, msg) andThen logErrors
+    }
+    val logErrors: PartialFunction[scala.util.Try[_], Any] = {
+      case scala.util.Failure(ex) => println("failed senging message due to: " + ex)
+    }
+  }
 
   def millisToString(millis: Long) = {
     val seconds = millis / 1000
