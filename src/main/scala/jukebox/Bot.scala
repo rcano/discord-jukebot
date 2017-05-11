@@ -353,7 +353,7 @@ object Bot extends App {
     commands += Command("add <urls...>", "Adds the given song(s) to the queue.")((_, msg) => {
       case gr"""add $url(.+)""" => url.split("\\s+") foreach {
         case gr"$url(https?://.+|)" =>
-          messageSender.reply(msg, "_adding " + url + "_")
+          messageSender.reply(msg, "*adding <" + url + "> *")
           audioPlayerManager.loadItemOrdered(ap, url, new AudioLoadResultHandler {
             override def trackLoaded(track) = {
               Playlist.queue(track, msg)
