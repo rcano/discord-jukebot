@@ -112,9 +112,9 @@ case class Emoji(
 )
 
 case class VoiceState(
-  guildId: Option[String],
-  channelId: Option[String],
-  userId: String,
+  guildId: Option[Snowflake],
+  channelId: Option[Snowflake],
+  userId: Snowflake,
   deaf: Boolean,
   mute: Boolean,
   selfDeaf: Boolean,

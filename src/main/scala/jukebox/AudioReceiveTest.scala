@@ -42,7 +42,7 @@ object AudioReceiveTest extends App {
       def ready = transition {
         case (conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(guild))) =>
           println(Console.CYAN + s"asking to join channel ${guild.name}" + Console.RESET)
-          val musicChannel = guild.channels.find(_.name == args(0)).get
+          val musicChannel = guild.channels.find(_.name.get == args(0)).get
           conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)
           setupVoiceChannel(guild)
       }

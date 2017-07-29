@@ -191,7 +191,7 @@ object GatewayEvents {
   object VoiceStateUpdate {
     def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.VoiceStateUpdate) {
       val event = ge.payload()
-      Some(VoiceStateUpdate(event.d.user_id.extract, event.d.session_id.extract, event.d.extract))
+      Some(VoiceStateUpdate(event.d.userId.extract, event.d.sessionId.extract, event.d.extract))
     } else None
   }
   case class VoiceServerUpdate(guildId: String, token: String, endpoint: String)

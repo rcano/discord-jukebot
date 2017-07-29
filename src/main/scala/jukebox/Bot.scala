@@ -38,12 +38,13 @@ object Bot extends App {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"Sending $msg")
     }
-    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    override def undefHandler(evt) = evt match {
-      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
-      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
-    }
+    //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    //    override def undefHandler(evt) = evt match {
+    //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
+    //      case ConnectionError(conn, err) => println(s"$conn receive error: $err\n${err.getStackTrace.mkString("\n")}")
+    //      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
+    //    }
     def initState = awaitReady(None)
     def awaitReady(botData: Option[BotData]): Transition = transition {
       case GatewayEvent(_, GatewayEvents.Ready(evt)) => awaitGuilds(botData, evt)
