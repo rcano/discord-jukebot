@@ -7,10 +7,8 @@ import java.net.{DatagramSocket, InetSocketAddress, DatagramPacket, SocketTimeou
 import org.asynchttpclient.{ws}
 
 import org.json4s.JsonAST.JValue
-import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
-import Json4sUtils._, org.json4s.JsonDSL._
-import AhcUtils._
+import Json4sUtils._, org.json4s.JsonDSL._, CustomPicklers._, Json4sPConfig.conf
 import scala.util.control.NoStackTrace
 import scala.util.control.NonFatal
 
@@ -66,7 +64,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
           val ssrc = payload.ssrc.extract[Int]
           val port = payload.port.extract[Int]
           val serverIp = payload.ip.extract[String]
-          val modes = payload.modes.extract[Array[String]]
+          //          val modes = payload.modes.extract[Seq[String]]
           val heartbeatInterval = payload.heartbeat_interval.extract[Int]
           val socket = new DatagramSocket()
           socket.connect(new InetSocketAddress(serverIp, port))
@@ -88,7 +86,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
       })
       def voiceConnected(ssrc: Int, socket: DatagramSocket) = state(payload => {
         case VoiceOp.SessionDescription =>
-          val secret = payload.secret_key.extract[Array[Byte]]
+          val secret = payload.secret_key.extract[Seq[Byte]].to[Array]
 
           /**
            * **************************************
@@ -138,7 +136,7 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
                 socket.receive(in)
                 voiceConsumer(DiscordAudioUtils.decrypt(receiveBuffer.take(in.getLength), secret))
               } catch {
-                case to: SocketTimeoutException =>
+                case _: SocketTimeoutException | _: IllegalStateException =>
                 case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e)
               }
             }

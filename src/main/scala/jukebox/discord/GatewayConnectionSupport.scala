@@ -12,12 +12,10 @@ import org.json4s.JsonAST.{JValue, JInt}
 import org.json4s.JsonDSL._
 import org.json4s.native.JsonParser
 import scala.annotation.tailrec
-import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
 import scala.util.control.NoStackTrace
 import scala.util.control.NonFatal
-import Json4sUtils._
-import AhcUtils._
+import Json4sUtils._, CustomPicklers._, Json4sPConfig.conf
 
 private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
   import DiscordClient._
@@ -91,7 +89,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       def initState = hello
       def hello = transition {
         case GatewayMessage(GatewayOp.Hello, _, payload) =>
-          nextHeartbeat(payload().d.heartbeat_interval.extract)
+          nextHeartbeat(payload().d.heartbeatInterval.extract)
           lastSession match {
             case None =>
               send(identityMsg)
@@ -106,7 +104,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
 
       def handshake = transition {
         case evt @ GatewayMessage(GatewayOp.Dispatch, Some("READY"), payload) =>
-          session = Some(SessionData(payload().d.session_id.extract, payload().d.v.extract))
+          session = Some(SessionData(payload().d.sessionId.extract, payload().d.v.extract))
           dispatcher(evt)
           dispatcher
 
@@ -180,7 +178,7 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
       try {
         val (s, op, tpe) = JsonParser.parse(msg, parser)
         if (op == -1) throw new IllegalStateException("no option found in discord message?\n" + msg)
-        lazy val payload = parseJson(msg).dyn
+        lazy val payload = parseJson(msg).camelizeKeys.dyn
 
         s foreach (seq = _)
         GatewayOp.withValueOpt(op).fold {
@@ -243,7 +241,6 @@ private[discord] trait GatewayConnectionSupport { self: DiscordClient =>
           send(renderJson(("op" -> GatewayOp.Heartbeat.value) ~ ("d" -> seq)))
           //after sending the heartbeat, change the current behaviour to detect the answer
           //if no answer is received in 5 seconds, reconnect.
-          val now = System.currentTimeMillis
           val prevBehaviour = stateMachine.current
 
           val heartbeatTimeout = (interval * 0.8).toInt.millis.toSeconds

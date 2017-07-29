@@ -4,8 +4,7 @@ package discord
 import enumeratum.values._
 import java.time.Instant
 
-import Json4sUtils._
-import Json.formats
+import Json4sUtils._, Json4sPConfig.conf, CustomPicklers._
 
 object GatewayEvents {
 
@@ -53,36 +52,40 @@ object GatewayEvents {
      relationships: Seq[Any], */
     _trace: Seq[String]
   )
-  object Ready { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.Ready) Some(Json.extract[Ready](ge.payload().d.jv)) else None }
+  object Ready { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.Ready) Some(ge.payload().d.extract[Ready]) else None }
 
   case object Resumed { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.Resumed) Some(()) else None }
 
   case class ChannelCreate(channel: Channel)
-  object ChannelCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelCreate) Some(ChannelCreate(Json.extract[Channel](ge.payload().d.jv))) else None }
+  object ChannelCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelCreate) Some(ChannelCreate(ge.payload().d.extract)) else None }
   case class ChannelUpdate(channel: Channel)
-  object ChannelUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelUpdate) Some(ChannelUpdate(Json.extract[Channel](ge.payload().d.jv))) else None }
+  object ChannelUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelUpdate) Some(ChannelUpdate(ge.payload().d.extract)) else None }
   case class ChannelDelete(channel: Channel)
-  object ChannelDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelDelete) Some(ChannelDelete(Json.extract[Channel](ge.payload().d.jv))) else None }
+  object ChannelDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.ChannelDelete) Some(ChannelDelete(ge.payload().d.extract)) else None }
 
   case class Guild(
-    id: String,
+    id: Snowflake,
     name: String,
     icon: String,
     splash: String,
-    ownerId: String,
+    ownerId: Snowflake,
     region: String,
-    afkChannelId: String,
+    afkChannelId: Snowflake,
     afkTimeout: Int,
     embedEnabled: Option[Boolean],
-    embedChannelId: Option[String],
+    embedChannelId: Option[Snowflake],
     verificationLevel: Int,
-    defaultMessageNotifications: Int,
+    defaultMessageNotifications: NotificationLevel,
+    explicitContentFilter: ExplicitContentFilterLevel,
     roles: Seq[Role],
     emojis: Seq[Emoji],
     features: Seq[String],
     mfaLevel: Int,
+    applicationId: Option[Snowflake],
+    widgetEnabled: Option[Boolean],
+    widgetChannelId: Option[Snowflake],
     joinedAt: Option[Instant],
-    large: Option[Boolean],
+    large: Boolean,
     unavailable: Boolean,
     memberCount: Int,
     members: Seq[GuildMember],
@@ -92,67 +95,68 @@ object GatewayEvents {
   ) extends GuildDef
 
   case class GuildCreate(guild: Guild)
-  object GuildCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildCreate) Some(GuildCreate(Json.extract[GatewayEvents.Guild](ge.payload().d.jv))) else None }
+  object GuildCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildCreate) Some(GuildCreate(ge.payload().d.extract)) else None }
   case class GuildUpdate(guild: Guild)
-  object GuildUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildUpdate) Some(GuildUpdate(Json.extract[GatewayEvents.Guild](ge.payload().d.jv))) else None }
+  object GuildUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildUpdate) Some(GuildUpdate(ge.payload().d.extract)) else None }
   case class GuildDelete(guild: UnavailableGuild)
-  object GuildDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildDelete) Some(GuildDelete(Json.extract[UnavailableGuild](ge.payload().d.jv))) else None }
+  object GuildDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildDelete) Some(GuildDelete(ge.payload().d.extract)) else None }
   case class GuildBanAdd(guildId: String, user: User)
   object GuildBanAdd {
     def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildBanAdd) {
       val event = ge.payload()
-      Some(GuildBanAdd(event.d.guildId.extract, Json.extract[User](event.d.jv)))
+      Some(GuildBanAdd(event.d.guildId.extract, event.d.extract))
     } else None
   }
   case class GuildBanRemove(guildId: String, user: User)
   object GuildBanRemove {
     def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildBanRemove) {
       val event = ge.payload()
-      Some(GuildBanRemove(event.d.guildId.extract, Json.extract[User](event.d.jv)))
+      Some(GuildBanRemove(event.d.guildId.extract, event.d.extract))
     } else None
   }
   case class GuildEmojisUpdate(guildId: String, emojis: Seq[Emoji])
-  object GuildEmojisUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildEmojisUpdate) Some(Json.extract[GuildEmojisUpdate](ge.payload().d.jv)) else None }
+  object GuildEmojisUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildEmojisUpdate) Some(ge.payload().d.extract[GuildEmojisUpdate]) else None }
   case class GuildIntegrationUpdate(guildId: String)
-  object GuildIntegrationUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildIntegrationUpdate) Some(Json.extract[GuildIntegrationUpdate](ge.payload().d.jv)) else None }
+  object GuildIntegrationUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildIntegrationUpdate) Some(ge.payload().d.extract[GuildIntegrationUpdate]) else None }
   case class GuildMemberAdd(guildId: String, user: User)
   object GuildMemberAdd {
     def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberAdd) {
       val event = ge.payload()
-      Some(GuildMemberAdd(event.d.guildId.extract, Json.extract[User](event.d.jv)))
+      Some(GuildMemberAdd(event.d.guildId.extract, event.d.extract))
     } else None
   }
   case class GuildMemberRemove(guildId: String, user: User)
-  object GuildMemberRemove { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberRemove) Some(Json.extract[GuildMemberRemove](ge.payload().d.jv)) else None }
+  object GuildMemberRemove { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberRemove) Some(ge.payload().d.extract[GuildMemberRemove]) else None }
   case class GuildMemberUpdate(guildId: String, user: User, roles: Seq[Role])
-  object GuildMemberUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberUpdate) Some(Json.extract[GuildMemberUpdate](ge.payload().d.jv)) else None }
+  object GuildMemberUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberUpdate) Some(ge.payload().d.extract[GuildMemberUpdate]) else None }
   case class GuildMemberChunk(guildId: String, members: Seq[GuildMember])
-  object GuildMemberChunk { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberChunk) Some(Json.extract[GuildMemberChunk](ge.payload().d.jv)) else None }
+  object GuildMemberChunk { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildMemberChunk) Some(ge.payload().d.extract[GuildMemberChunk]) else None }
   case class GuildRoleCreate(guildId: String, role: Role)
-  object GuildRoleCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleCreate) Some(Json.extract[GuildRoleCreate](ge.payload().d.jv)) else None }
+  object GuildRoleCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleCreate) Some(ge.payload().d.extract[GuildRoleCreate]) else None }
   case class GuildRoleUpdate(guildId: String, role: Role)
-  object GuildRoleUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleUpdate) Some(Json.extract[GuildRoleUpdate](ge.payload().d.jv)) else None }
+  object GuildRoleUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleUpdate) Some(ge.payload().d.extract[GuildRoleUpdate]) else None }
   case class GuildRoleDelete(guildId: String, roleId: String)
-  object GuildRoleDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleDelete) Some(Json.extract[GuildRoleDelete](ge.payload().d.jv)) else None }
+  object GuildRoleDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.GuildRoleDelete) Some(ge.payload().d.extract[GuildRoleDelete]) else None }
 
   case class MessageCreate(message: Message)
-  object MessageCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageCreate) Some(MessageCreate(Json.extract[Message](ge.payload().d.jv))) else None }
+  object MessageCreate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageCreate) Some(MessageCreate(ge.payload().d.extract)) else None }
   case class MessageUpdate(message: jukebox.discord.MessageUpdate)
-  object MessageUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageUpdate) Some(GatewayEvents.MessageUpdate(Json.extract[jukebox.discord.MessageUpdate](ge.payload().d.jv))) else None }
+  object MessageUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageUpdate) Some(GatewayEvents.MessageUpdate(ge.payload().d.extract)) else None }
   case class MessageDelete(channelId: String, id: String)
-  object MessageDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageDelete) Some(Json.extract[MessageDelete](ge.payload().d.jv)) else None }
+  object MessageDelete { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageDelete) Some(ge.payload().d.extract[MessageDelete]) else None }
   case class MessageDeleteBulk(channelId: String, ids: Seq[String])
-  object MessageDeleteBulk { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageDeleteBulk) Some(Json.extract[MessageDeleteBulk](ge.payload().d.jv)) else None }
+  object MessageDeleteBulk { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.MessageDeleteBulk) Some(ge.payload().d.extract[MessageDeleteBulk]) else None }
 
+  implicit val gameStatusUnpickler = implicitly[prickle.Unpickler[GameStatus]]
   case class PresenceUpdate(
-    guildId: String,
+    guildId: Snowflake,
     user: PresenceUser,
     nick: String,
-    roles: Seq[String],
-    game: Option[Map[String, String]],
+    roles: Seq[Snowflake],
+    game: Option[GameStatus],
     status: String
   )
-  object PresenceUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.PresenceUpdate) Some(Json.extract[PresenceUpdate](ge.payload().d.jv)) else None }
+  object PresenceUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.PresenceUpdate) Some(ge.payload().d.extract[PresenceUpdate]) else None }
   case class PresenceUser(
     id: String,
     userName: Option[String],
@@ -164,19 +168,33 @@ object GatewayEvents {
     email: Option[String]
   )
 
+  object GameStatus {
+    sealed abstract class Type(val value: Int) extends IntEnumEntry
+    object Type extends IntEnum[Type] {
+      val values = findValues
+      case object Playing extends Type(0)
+      case object Streaming extends Type(1)
+    }
+  }
+  case class GameStatus(
+    name: String,
+    tpe: Option[GameStatus.Type],
+    url: Option[String]
+  )
+
   case class TypingStart(channelId: String, userId: String, timestamp: Long)
-  object TypingStart { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.TypingStart) Some(Json.extract[TypingStart](ge.payload().d.jv)) else None }
+  object TypingStart { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.TypingStart) Some(ge.payload().d.extract[TypingStart]) else None }
 
   case class UserUpdate(user: User)
-  object UserUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.UserUpdate) Some(UserUpdate(Json.extract[User](ge.payload().d.jv))) else None }
+  object UserUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.UserUpdate) Some(UserUpdate(ge.payload().d.extract)) else None }
   case class VoiceStateUpdate(userId: String, sessionId: String, voiceState: VoiceState)
   object VoiceStateUpdate {
     def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.VoiceStateUpdate) {
       val event = ge.payload()
-      Some(VoiceStateUpdate(event.d.user_id.extract, event.d.session_id.extract, Json.extract[VoiceState](event.d.jv)))
+      Some(VoiceStateUpdate(event.d.user_id.extract, event.d.session_id.extract, event.d.extract))
     } else None
   }
   case class VoiceServerUpdate(guildId: String, token: String, endpoint: String)
-  object VoiceServerUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.VoiceServerUpdate) Some(Json.extract[VoiceServerUpdate](ge.payload().d.jv)) else None }
+  object VoiceServerUpdate { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.VoiceServerUpdate) Some(ge.payload().d.extract[VoiceServerUpdate]) else None }
 
 }

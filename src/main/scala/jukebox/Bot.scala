@@ -4,6 +4,7 @@ import com.sedmelluq.discord.lavaplayer.player.{AudioConfiguration, AudioLoadRes
 import com.sedmelluq.discord.lavaplayer.player.event._
 import com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioSourceManager
+import com.sedmelluq.discord.lavaplayer.source.http.HttpAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
 import jukebox.discord._
 import org.json4s.native.JsonMethods.{pretty, render}
@@ -13,16 +14,19 @@ import scala.concurrent._, duration._, ExecutionContext.Implicits._
 
 object Bot extends App {
 
-  case class Clargs(discordToken: String = null, channel: String = null)
+  case class Clargs(discordToken: String = null, channel: String = null, dictatorMode: Boolean = false, dictatorAssociates: Seq[String] = Seq.empty)
   val clargs = new scopt.OptionParser[Clargs]("discord-jukebox") {
     opt[String]('t', "token").action((x, c) => c.copy(discordToken = x)).required.text("discord bot token")
     opt[String]('c', "channel").action((x, c) => c.copy(channel = x)).required.text("discord voice channel")
+    opt[Unit]("dictator").action((x, c) => c.copy(dictatorMode = true)).text("toggle dictator mode")
+    opt[Seq[String]]("associates").action((x, c) => c.copy(dictatorAssociates = x)).text("dictator associates list, comma separated")
   }.parse(args, new Clargs()).getOrElse(sys.exit(0))
 
   val audioPlayerManager = new DefaultAudioPlayerManager()
   audioPlayerManager.getConfiguration.setResamplingQuality(AudioConfiguration.ResamplingQuality.LOW)
   audioPlayerManager.registerSourceManager(new YoutubeAudioSourceManager())
   audioPlayerManager.registerSourceManager(new LocalAudioSourceManager())
+  audioPlayerManager.registerSourceManager(new HttpAudioSourceManager())
   audioPlayerManager.setPlayerCleanupThreshold(Long.MaxValue)
 
   val noData = new Array[Byte](0)
@@ -34,12 +38,12 @@ object Bot extends App {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"Sending $msg")
     }
-    //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    //    override def undefHandler(evt) = evt match {
-    //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
-    //      case _ =>
-    //    }
+    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+    override def undefHandler(evt) = evt match {
+      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
+      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
+    }
     def initState = awaitReady(None)
     def awaitReady(botData: Option[BotData]): Transition = transition {
       case GatewayEvent(_, GatewayEvents.Ready(evt)) => awaitGuilds(botData, evt)
@@ -158,7 +162,11 @@ object Bot extends App {
         try {
           val cmd = msg.content.stripPrefix(guildData.me).replaceFirst("^[,:]?\\s+", "")
           commands.find(_.action(guildData, msg).isDefinedAt(cmd)) match {
-            case Some(command) => command.action(guildData, msg)(cmd)
+            case Some(command) =>
+              if (!clargs.dictatorMode || clargs.dictatorAssociates.contains(msg.author.id))
+                command.action(guildData, msg)(cmd)
+              else
+                messageSender.reply(msg, s"Sorry, running in dictator mod. Only the dictator and his associates may command me.")
             case _ => messageSender.reply(msg, s"Sorry, I don't know the command: $cmd")
           }
         } catch {
@@ -185,7 +193,7 @@ object Bot extends App {
 
     def setupVoiceChannel(guildData: GuildData, nextState: DiscordClient#VoiceConnection => Transition): Transition = {
       guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, None, false, true)
-      guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, guildData.guild.channels.find(_.name equalsIgnoreCase clargs.channel).map(_.id), false, true)
+      guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, guildData.guild.channels.find(_.name.get equalsIgnoreCase clargs.channel).map(_.id), false, true)
       transition {
         case ourVoiceState: GatewayEvents.VoiceStateUpdate if ourVoiceState.voiceState.channelId.isDefined =>
           println("voice state received, waiting for voice server udpate")

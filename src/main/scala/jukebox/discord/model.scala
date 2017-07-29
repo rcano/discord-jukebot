@@ -1,6 +1,7 @@
 package jukebox
 package discord
 
+import enumeratum.values.{IntEnum, IntEnumEntry}
 import java.time.Instant
 
 case class User(
@@ -14,41 +15,62 @@ case class User(
   email: Option[String]
 )
 
+sealed abstract class ExplicitContentFilterLevel(val value: Int) extends IntEnumEntry
+object ExplicitContentFilterLevel extends IntEnum[ExplicitContentFilterLevel] {
+  val values = findValues
+  case object Disabled extends ExplicitContentFilterLevel(0)
+  case object MembersWithoutRoles extends ExplicitContentFilterLevel(1)
+  case object AllMembers extends ExplicitContentFilterLevel(2)
+}
+sealed abstract class NotificationLevel(val value: Int) extends IntEnumEntry
+object NotificationLevel extends IntEnum[NotificationLevel] {
+  val values = findValues
+  case object AllMessages extends NotificationLevel(0)
+  case object OnlyMentions extends NotificationLevel(1)
+}
 trait GuildDef {
-  def id: String
+  def id: Snowflake
   def name: String
   def icon: String
   def splash: String
-  def ownerId: String
+  def ownerId: Snowflake
   def region: String
-  def afkChannelId: String
+  def afkChannelId: Snowflake
   def afkTimeout: Int
   def embedEnabled: Option[Boolean]
-  def embedChannelId: Option[String]
+  def embedChannelId: Option[Snowflake]
   def verificationLevel: Int
-  def defaultMessageNotifications: Int
+  def defaultMessageNotifications: NotificationLevel
+  def explicitContentFilter: ExplicitContentFilterLevel
   def roles: Seq[Role]
   def emojis: Seq[Emoji]
   def features: Seq[String]
   def mfaLevel: Int
+  def applicationId: Option[Snowflake]
+  def widgetEnabled: Option[Boolean]
+  def widgetChannelId: Option[Snowflake]
 }
 case class Guild(
-  id: String,
+  id: Snowflake,
   name: String,
   icon: String,
   splash: String,
-  ownerId: String,
+  ownerId: Snowflake,
   region: String,
-  afkChannelId: String,
+  afkChannelId: Snowflake,
   afkTimeout: Int,
   embedEnabled: Option[Boolean],
-  embedChannelId: Option[String],
+  embedChannelId: Option[Snowflake],
   verificationLevel: Int,
-  defaultMessageNotifications: Int,
+  defaultMessageNotifications: NotificationLevel,
+  explicitContentFilter: ExplicitContentFilterLevel,
   roles: Seq[Role],
   emojis: Seq[Emoji],
   features: Seq[String],
-  mfaLevel: Int
+  mfaLevel: Int,
+  applicationId: Option[Snowflake],
+  widgetEnabled: Option[Boolean],
+  widgetChannelId: Option[Snowflake]
 ) extends GuildDef
 
 case class UnavailableGuild(id: String, unavailable: Boolean)
@@ -100,36 +122,34 @@ case class VoiceState(
   suppress: Boolean
 )
 
-sealed trait Channel {
-  def id: String
-  //  def guildId: String
-  def name: String
-  def position: Int
-  def isPrivate: Boolean
-  def permissionOverwrites: Seq[Overwrite]
+object Channel {
+  sealed abstract class Type(val value: Int) extends IntEnumEntry
+  object Type extends IntEnum[Type] {
+    val values = findValues
+    case object GuildText extends Type(0)
+    case object Dm extends Type(1)
+    case object GuildVoice extends Type(2)
+    case object GroupDm extends Type(3)
+    case object GuildCategory extends Type(4)
+  }
 }
 
-case class TextChannel(
-  id: String,
-  //  guildId: String,
-  name: String,
-  position: Int,
-  isPrivate: Boolean,
+case class Channel(
+  id: Snowflake,
+  tpe: Channel.Type,
+  guildId: Option[Snowflake],
+  name: Option[String],
+  position: Option[Int],
   permissionOverwrites: Seq[Overwrite],
-  topic: String,
-  lastMessageId: String
-) extends Channel
-
-case class VoiceChannel(
-  id: String,
-  //  guildId: String,
-  name: String,
-  position: Int,
-  isPrivate: Boolean,
-  permissionOverwrites: Seq[Overwrite],
-  bitrate: Int,
-  userLimit: Int
-) extends Channel
+  topic: Option[String],
+  lastMessageId: Option[Snowflake],
+  bitrate: Option[Int],
+  userLimit: Option[Int],
+  recipients: Seq[User],
+  icon: Option[String], //icon hash they say
+  ownerId: Option[Snowflake],
+  applicationId: Option[Snowflake],
+)
 
 case class Overwrite(id: String, tpe: String, allow: Int, deny: Int)
 

@@ -8,12 +8,12 @@ import java.util.Arrays
 import java.util.concurrent.{Executors, ThreadFactory}
 import org.asynchttpclient.{AsyncHttpClient, BoundRequestBuilder, DefaultAsyncHttpClient, DefaultAsyncHttpClientConfig, Response, ws}
 
-import org.json4s.JsonAST.JValue
 import org.json4s.JsonDSL._
+import prickle.Pickle
 import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
 import scala.util.control.NonFatal
-import Json4sUtils._
+import Json4sUtils._, CustomPicklers._, Json4sPConfig.conf
 import AhcUtils._
 
 class DiscordClient(val token: String, val listener: DiscordClient.DiscordListener, val ahc: AsyncHttpClient = new DefaultAsyncHttpClient(
@@ -21,7 +21,6 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
     setWebSocketMaxFrameSize(Int.MaxValue).build()
 )) extends GatewayConnectionSupport with VoiceConnectionSupport {
   import DiscordClient._, DiscordConstants._
-  private[discord] implicit val jsonFormats = org.json4s.DefaultFormats
   private[discord] val baseHeaders = Map[String, java.util.Collection[String]]("Authorization" -> Arrays.asList(s"Bot $token")).asJava
   private[discord] val timer = new HashedWheelTimer(
     { r =>
@@ -46,7 +45,7 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
   def fetchGateway(): Future[(String, Int)] = request(ahc.prepareGet(GATEWAY).setHeaders(baseHeaders))(
     asDynJson.andThen { jv =>
       listener.onGatewayData(jv)
-      (jv.url.extract[String] + "?encoding=json&v=5", jv.shards.extract)
+      (jv.url.extract[String] + "?encoding=json&v=6", jv.shards.extract)
     }
   )
 
@@ -97,10 +96,10 @@ class DiscordClient(val token: String, val listener: DiscordClient.DiscordListen
   object channels {
     private object endpoint extends DiscordEndpoint
     def createMessage(channelId: String, message: String, embed: Embed = null, tts: Boolean = false): Future[Message] = {
-      val body = renderJson(("content" -> message) ~ ("nonce" -> (null: String)) ~ ("tts" -> tts) ~ ("embed" -> Json.decompose(embed)))
+      val body = renderJson(("content" -> message) ~ ("nonce" -> (null: String)) ~ ("tts" -> tts) ~ ("embed" -> Pickle(embed)))
       val req = ahc.preparePost(CHANNELS + channelId + "/messages").setHeaders(baseHeaders).addHeader("Content-Type", "application/json").setCharset(Charset.forName("utf-8")).setBody(body)
 
-      request(req)(asDynJson.andThen(jv => Json.extract[Message](jv.jv)))
+      request(req)(asDynJson.andThen(jv => jv.extract[Message]))
     }
   }
 

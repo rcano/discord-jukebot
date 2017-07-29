@@ -1,11 +1,9 @@
 package jukebox
 
-import java.nio.channels.FileChannel
 import java.nio.file._
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
-import javax.sound.sampled.AudioInputStream
 import org.json4s._
 
 import scala.collection.JavaConverters._
@@ -13,7 +11,7 @@ import scala.concurrent._
 import scala.sys.process._
 import scala.util.Try
 
-import Json4sUtils._
+import Json4sUtils._, discord.CustomPicklers._, discord.Json4sPConfig.conf
 
 /**
  * Provider of video metadata and data from youtube
@@ -88,7 +86,6 @@ object YoutubeProvider {
     seq.lineStream_!(ProcessLogger(l => errorLog :+= l)).force -> errorLog
   }
 
-  private implicit val jsonFormats = DefaultFormats
   private def extractSongMetadata(jv: JValue) = {
     val json = jv.dyn
     SongMetadata(
