@@ -168,20 +168,6 @@ object GatewayEvents {
     email: Option[String]
   )
 
-  object GameStatus {
-    sealed abstract class Type(val value: Int) extends IntEnumEntry
-    object Type extends IntEnum[Type] {
-      val values = findValues
-      case object Playing extends Type(0)
-      case object Streaming extends Type(1)
-    }
-  }
-  case class GameStatus(
-    name: String,
-    tpe: Option[GameStatus.Type],
-    url: Option[String]
-  )
-
   case class TypingStart(channelId: String, userId: String, timestamp: Long)
   object TypingStart { def unapply(ge: GatewayEvent) = if (ge.tpe == EventType.TypingStart) Some(ge.payload().d.extract[TypingStart]) else None }
 

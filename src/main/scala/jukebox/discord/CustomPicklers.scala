@@ -100,6 +100,8 @@ object CustomPicklers {
   implicit val unavailableGuildUnpickler = implicitly[Unpickler[UnavailableGuild]]
   implicit val guildMemberPickler = implicitly[Pickler[GuildMember]]
   implicit val guildMemberUnpickler = implicitly[Unpickler[GuildMember]]
+  implicit val gameStatusPickler = implicitly[Pickler[GameStatus]]
+  implicit val gameStatusUnpickler = implicitly[Unpickler[GameStatus]]
   implicit val guildPresencePickler = implicitly[Pickler[GuildPresence]]
   implicit val guildPresenceUnpickler = implicitly[Unpickler[GuildPresence]]
   implicit val guildUserPickler = implicitly[Pickler[PresenceUser]]

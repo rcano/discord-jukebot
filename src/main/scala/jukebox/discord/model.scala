@@ -84,9 +84,23 @@ case class GuildMember(
   mute: Boolean
 )
 
+object GameStatus {
+  sealed abstract class Type(val value: Int) extends IntEnumEntry
+  object Type extends IntEnum[Type] {
+    val values = findValues
+    case object Playing extends Type(0)
+    case object Streaming extends Type(1)
+  }
+}
+case class GameStatus(
+  name: String,
+  tpe: Option[GameStatus.Type],
+  url: Option[String]
+)
+
 case class GuildPresence(
   user: PresenceUser,
-  game: Option[Map[String, String]],
+  game: Option[GameStatus],
   nick: Option[String],
   status: String
 )
