@@ -40,11 +40,12 @@ object Bot extends App {
     }
     //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
     //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    //    override def undefHandler(evt) = evt match {
-    //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
-    //      case ConnectionError(conn, err) => println(s"$conn receive error: $err\n${err.getStackTrace.mkString("\n")}")
-    //      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
-    //    }
+    override def undefHandler(evt) = evt match {
+      case ConnectionError(conn, err) => println(s"$conn receive error: $err\n${err.getStackTrace.mkString("\n")}")
+      //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
+      //      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
+      case _ =>
+    }
     def initState = awaitReady(None)
     def awaitReady(botData: Option[BotData]): Transition = transition {
       case GatewayEvent(_, GatewayEvents.Ready(evt)) => awaitGuilds(botData, evt)
@@ -79,7 +80,16 @@ object Bot extends App {
 
     def messageHandling(data: BotData): Transition = transition {
       case GatewayEvent(_, GatewayEvents.MessageCreate(GatewayEvents.MessageCreate(msg))) if msg.content startsWith data.me =>
-        dispatchByChannelId(data, msg.channelId, msg)(messageSender.reply(msg, s"What guild is this?"))
+        dispatchByChannelId(data, msg.channelId, msg) {
+          //see if the message starts with a guildId
+          gr"""guild:(\d+) .+""".findFirstMatchIn(msg.content) match {
+            case Some(matchh) =>
+              println(matchh)
+              val guild = matchh.group(1)
+              dispatchByGuildId(data, guild, msg.copy(content = msg.content.replaceFirst(s"guild:$guild ", "")))(messageSender.reply(msg, s"Could not find guild $guild"))
+            case _ => messageSender.reply(msg, s"What guild is this?")
+          }
+        }
         current
 
       case GatewayEvent(_, GatewayEvents.VoiceStateUpdate(voiceState)) =>
@@ -487,10 +497,15 @@ object Bot extends App {
     })
 
     commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")((gd, msg) => {
-      case "subscribe" =>
-        messageSender.reply(msg, "subscribed")
-        if (!gd.subscribers.exists(_.msg.author.id == msg.author.id))
-          updateState(gd.copy(subscribers = gd.subscribers :+ Subscription(msg)))
+      case gr"subscribe$who(?: (.*))?" =>
+        who.fold(Option(msg.author))(who => gd.guild.members.find(_.user.id == who).map(_.user)) match {
+          case Some(user) => 
+              messageSender.reply(msg, "subscribed")
+              if (!gd.subscribers.exists(_.msg.author.id == user.id))
+                updateState(gd.copy(subscribers = gd.subscribers :+ Subscription(msg.copy(author = user))))
+          case _ =>
+              messageSender.reply(msg, s"Could not find user $who")
+        }
     })
     commands += Command("unsubscribe", "(bot only) Unsubscribes from status updates via DM.")((gd, msg) => {
       case "unsubscribe" =>
