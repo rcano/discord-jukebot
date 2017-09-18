@@ -19,6 +19,7 @@ class DiscordRateHonoringSender(client: DiscordClient) {
     def run = pendingMessages.synchronized {
       if (pendingMessages.nonEmpty) println("pending messages:\n  " + pendingMessages.map(e => (e._1._1 -> e._1._2.map(_.userName)) + " -> " + e._2.size).mkString("\n  "))
       pendingMessages.headOption foreach {
+        case ((channelId, author), msgs) if msgs.isEmpty => pendingMessages.remove((channelId, author))
         case ((channelId, author), msgs) =>
           @tailrec def clampMessages(acc: Int = 0, i: Int = 0): (Int, Int) = {
             val newAcc = msgs.get(i)._1.length + acc
