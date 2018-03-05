@@ -90,12 +90,14 @@ object GameStatus {
     val values = findValues
     case object Playing extends Type(0)
     case object Streaming extends Type(1)
+    case object Listening extends Type(2)
   }
 }
 case class GameStatus(
   name: String,
   tpe: Option[GameStatus.Type],
-  url: Option[String]
+  url: Option[String],
+  details: Option[String]
 )
 
 case class GuildPresence(

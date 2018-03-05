@@ -6,7 +6,7 @@ version := "0.1-SNAPSHOT"
 
 scalaVersion := "2.12.3"
 
-coursierChecksums := Nil
+//coursierChecksums := Nil
 
 libraryDependencies ++= Seq(
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,

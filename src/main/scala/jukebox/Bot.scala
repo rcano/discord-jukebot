@@ -12,7 +12,8 @@ import regex._
 import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
 
-object Bot extends App {
+object Bot { def main(args: Array[String]): Unit = new Bot(args)}
+class Bot(args: Array[String]) {
 
   case class Clargs(discordToken: String = null, channel: String = null, dictatorMode: Boolean = false, dictatorAssociates: Seq[String] = Seq.empty)
   val clargs = new scopt.OptionParser[Clargs]("discord-jukebox") {

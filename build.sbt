@@ -25,9 +25,7 @@ mainClass in Compile := Some("jukebox.Bot")
 javaOptions in Universal ++= Seq("-J-Xmx24m")
 mappings in (Compile, packageDoc) := Seq()
 
-coursierChecksums := Nil
-
-scalariformPreferences := scalariformPreferences.value.setPreference(scalariform.formatter.preferences.SpacesAroundMultiImports, false)
+//coursierChecksums := Nil
 
 resolvers += "jcenter" at "http://jcenter.bintray.com"
 resolvers += "jitpack.io" at "https://jitpack.io"

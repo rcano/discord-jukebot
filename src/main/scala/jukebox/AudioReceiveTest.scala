@@ -61,7 +61,7 @@ object AudioReceiveTest extends App {
       def detectFailures(guild: GatewayEvents.Guild) = transition {
         case (conn, GatewayEvents.Resumed(())) =>
           println(Console.CYAN + s"asking to rejoin channel ${guild.name}" + Console.RESET)
-          val musicChannel = guild.channels.find(_.name == args(0)).get
+          val musicChannel = guild.channels.find(_.name.get == args(0)).get
           conn.sendVoiceStateUpdate(guild.id, None, false, true)
           transition {
             case (conn, GatewayEvents.VoiceStateUpdate(s)) =>
@@ -128,15 +128,17 @@ object AudioReceiveTest extends App {
         sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
         ()
       } { frame =>
-        opusFrame.clear()
-        opusFrame.put(frame.audio).flip()
-        pcmOutputShortBuffer.clear()
-        val written = opusDecoder.decode(opusFrame, pcmOutputShortBuffer) * 4
-        //    println("decoded " + pcmOutputShortBuffer)
-        pcmOutput.position(0).limit(written)
-        pcmOutput.get(pcmOutputArray)
-
-        sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
+        try {
+            opusFrame.clear()
+            opusFrame.put(frame.audio).flip()
+            pcmOutputShortBuffer.clear()
+            val written = opusDecoder.decode(opusFrame, pcmOutputShortBuffer) * 4
+            //    println("decoded " + pcmOutputShortBuffer)
+            pcmOutput.position(0).limit(written)
+            pcmOutput.get(pcmOutputArray)
+            
+            sourceDataLine.write(pcmOutputArray, 0, pcmOutputArray.length)
+          } catch { case all: Exception => all.printStackTrace() }
       }
     }
   }, 20).start()

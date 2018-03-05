@@ -135,6 +135,8 @@ private[discord] trait VoiceConnectionSupport { self: DiscordClient =>
                 val in = new DatagramPacket(receiveBuffer, receiveBuffer.length)
                 socket.receive(in)
                 voiceConsumer(DiscordAudioUtils.decrypt(receiveBuffer.take(in.getLength), secret))
+                
+                  //TODO maybe someday handle the new RTP format as done here https://github.com/austinv11/Discord4J/blob/430c826377ad0aeca563267ed429648b8d59c5de/src/main/java/sx/blah/discord/api/internal/OpusPacket.java
               } catch {
                 case _: SocketTimeoutException | _: IllegalStateException =>
                 case e: IOException => listener.onConnectionError(VoiceConnectionImpl.this, e)
