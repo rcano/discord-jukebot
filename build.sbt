@@ -2,7 +2,7 @@ name := "discord-jukebox"
 
 version := "0.1"
 
-scalaVersion := "2.12.3"
+scalaVersion := "2.12.4"
 
 fork := true
 
@@ -15,7 +15,7 @@ libraryDependencies ++= Seq(
   "org.asynchttpclient" % "async-http-client" % "2.0.33",
   "com.beachape" %% "enumeratum" % "1.5.12",
   "com.github.benhutchison" %% "prickle" % "1.1.14",
-  "com.sedmelluq" % "lavaplayer" % "1.2.42",
+  "com.sedmelluq" % "lavaplayer" % "1.2.59",
   "io.dropwizard.metrics" % "metrics-core" % "3.2.3",
   "io.github.soc" %% "regextractor" % "0.2",
   "org.jsoup" % "jsoup" % "1.10.3"
