@@ -475,8 +475,9 @@ class Bot(args: Array[String]) {
           val to = math.min(n2.toInt, Playlist.size)
           if (from > to) messageSender.reply(msg, s"$from is greater than $to ... :sweat:")
           else {
-            val removedTracks = for (i <- from until to) yield {
-              val track = Playlist.remove(from) //removing from is on purpose
+            val from0Based = from - 1
+            val removedTracks = for (i <- from0Based until to) yield {
+              val track = Playlist.remove(from0Based) //removing from is on purpose
               track.getInfo.title
             }
             messageSender.reply(msg, "_removed:_")
@@ -492,10 +493,10 @@ class Bot(args: Array[String]) {
               val num = n.toInt
               if (num < 0) messageSender.reply(msg, "A negative number? :sweat:")
               else if (Playlist.size == 0) messageSender.reply(msg, "The playlist is empty.")
-              else if (num >= Playlist.size) messageSender.reply(msg, s"$num is larger than the playlist's size, you meant to remove the last one? it's ${Playlist.size - 1}")
+              else if (num > Playlist.size) messageSender.reply(msg, s"$num is larger than the playlist's size, you meant to remove the last one? it's ${Playlist.size}")
               else if (num == 0) Playlist.skip()
               else {
-                val track = Playlist.remove(num)
+                val track = Playlist.remove(num - 1)
                 messageSender.reply(msg, s"_ removed ${track.getInfo.title}_")
               }
 
