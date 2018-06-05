@@ -4,14 +4,15 @@ import java.nio.file._
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
-import org.json4s._
+import headache.JsonUtils._
+import headache.JsonCodecs._
+import play.api.libs.json.{JsValue, Json}
 
 import scala.collection.JavaConverters._
 import scala.concurrent._
 import scala.sys.process._
 import scala.util.Try
 
-import Json4sUtils._, discord.CustomPicklers._, discord.Json4sPConfig.conf
 
 /**
  * Provider of video metadata and data from youtube
@@ -28,11 +29,11 @@ object YoutubeProvider {
     implicit val commandExecutor = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(10))
     runCommand("youtube-dl --no-call-home -q -j --flat-playlist --".split(" ").toSeq :+ url) match {
       case (Seq(), errorLog) => throw new Exception(errorLog.mkString("\n"))
-      case (Seq(line), _) => (1, new SyncVar, Future.successful(Seq(extractSongMetadata(parseJson(line)))))
+      case (Seq(line), _) => (1, new SyncVar, Future.successful(Seq(extractSongMetadata(Json.parse(line)))))
       case (playlist, _) =>
         //in case of a playlist, I now have to fetch eatch video's data
         val cancel = new SyncVar[Unit]()
-        val urls = playlist map parseJson filter (_.dyn._type.extract[String] == "url") map (j => j.dyn.url.extract[String])
+        val urls = playlist map Json.parse filter (_.dyn._type.extract[String] == "url") map (j => j.dyn.url.extract[String])
         val alreadyCompleted = new AtomicInteger()
 
         val urlsBeingProcessed = urls.zipWithIndex map {
@@ -48,7 +49,7 @@ object YoutubeProvider {
                   None
                 case (Seq(line), _) =>
                   progressReporter(alreadyCompleted.incrementAndGet)
-                  Some(idx -> extractSongMetadata(parseJson(line)))
+                  Some(idx -> extractSongMetadata(Json.parse(line)))
               }
             }
         }
@@ -86,10 +87,10 @@ object YoutubeProvider {
     seq.lineStream_!(ProcessLogger(l => errorLog :+= l)).force -> errorLog
   }
 
-  private def extractSongMetadata(jv: JValue) = {
+  private def extractSongMetadata(jv: JsValue) = {
     val json = jv.dyn
     SongMetadata(
-      java.net.URLDecoder.decode(json.fulltitle.extract, "utf-8"),
+      java.net.URLDecoder.decode(json.fulltitle.extract[String], "utf-8"),
       json.duration.extract[Option[String]].map(_.toInt),
       json.webpage_url.extract
     )

@@ -1,13 +1,13 @@
 package jukebox
 
-import discord.AhcUtils._
 import java.nio.charset.Charset
+import headache.AhcUtils._
+import headache.JsonUtils._
 import org.asynchttpclient.AsyncHttpClient
 import org.asynchttpclient.util.Utf8UrlEncoder
-import org.json4s.JsonAST.JObject
+import play.api.libs.json.JsObject
 import scala.concurrent.Future
 
-import Json4sUtils._, discord.CustomPicklers._, discord.Json4sPConfig.conf
 
 object Spotalike {
   def generate(ahc: AsyncHttpClient, song: String): Future[Seq[String]] = {
@@ -16,7 +16,7 @@ object Spotalike {
         "method=query&query=" + Utf8UrlEncoder.encodeQueryElement(song)
       )) { resp =>
       val json = asDynJson(resp)
-      json.tracks.extract[Seq[JObject]].map { trackJson =>
+      json.tracks.extract[Seq[JsObject]].map { trackJson =>
         val track = trackJson.dyn
         track.artist.extract[String] + " " + track.name.extract[String]
       }

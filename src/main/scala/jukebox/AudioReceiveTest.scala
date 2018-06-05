@@ -1,28 +1,26 @@
-package jukebox.discord
+package jukebox
 
-import better.files._
 import com.codahale.metrics.{ConsoleReporter, MetricRegistry}
 import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicInteger
-import org.json4s.native.JsonMethods.{pretty, render}
-import scala.concurrent._, duration._, ExecutionContext.Implicits._
+import headache._, JsonUtils.renderJson
+import scala.concurrent._, duration._
 
 object AudioReceiveTest extends App {
 
-  val noData = new Array[Byte](0)
+  val noData = Array[Byte](0xF8.toByte, 0xFF.toByte, 0xFE.toByte)
   class DiscordClientHandler(logFunction: Any => Unit = println)(voiceProducer: () => Array[Byte] = () => noData, voiceConsumer: AudioRtpFrame => Unit = _ => ()) extends DiscordClient.DiscordListener {
     val println = logFunction
     //    override def onGatewayData(data) = println(s"Gateway ${pretty(render(data.jv))}")
     //    override def onGatewayOp(conn, op, data) = println(s"Received $op: ${pretty(render(data.jv))} from ${java.util.Objects hashCode conn}")
     //    override def onVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received $op: ${pretty(render(data.jv))}" + Console.RESET)
-    //    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${pretty(render(data.jv))}")
-    override def onUnexpectedVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received unsupported op $op: ${pretty(render(data.jv))}" + Console.RESET)
-    //    override def onMessageBeingSent(conn, msg) = {
-    //      if (conn.isInstanceOf[DiscordClient#VoiceConnection])
-    //        println(Console.MAGENTA + s"Sending $msg" + Console.RESET)
-    //      else
-    //        println(s"Sending $msg")
-    //    }
+    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
+    override def onUnexpectedVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received unsupported op $op: ${renderJson(data.jv.get, true)}" + Console.RESET)
+    override def onMessageBeingSent(conn, msg) = {
+      if (conn.isInstanceOf[DiscordClient#VoiceConnection])
+        println(Console.MAGENTA + s"Sending $msg" + Console.RESET)
+      else
+        println(s"Sending $msg")
+    }
 
     override def onReconnecting(conn, reason) = println(s"reconnecting $conn because of $reason")
     override def onConnectionOpened(conn) = println(s"$conn connected")
@@ -41,17 +39,17 @@ object AudioReceiveTest extends App {
       def initState = ready
       def ready = transition {
         case (conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(guild))) =>
-          println(Console.CYAN + s"asking to join channel ${guild.name}" + Console.RESET)
+          println(Console.CYAN + s"asking to join voice channel ${args(0)} in guild ${guild.name}" + Console.RESET)
           val musicChannel = guild.channels.find(_.name.get == args(0)).get
           conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)
           setupVoiceChannel(guild)
       }
 
       def setupVoiceChannel(guild: GatewayEvents.Guild): Transition = transition {
-        case (conn, GatewayEvents.VoiceStateUpdate(u)) =>
+        case (conn, GatewayEvents.VoiceStateUpdateEvent(u)) =>
           println(s"State received, waiting for voice server update")
           transition {
-            case (conn, GatewayEvents.VoiceServerUpdate(s)) =>
+            case (conn, GatewayEvents.VoiceServerUpdateEvent(s)) =>
               println(s"connecting to voice channel")
               conn.client.connectToVoiceChannel(u, s, voiceConsumer, voiceProducer)
               detectFailures(guild)
@@ -60,11 +58,11 @@ object AudioReceiveTest extends App {
 
       def detectFailures(guild: GatewayEvents.Guild) = transition {
         case (conn, GatewayEvents.Resumed(())) =>
-          println(Console.CYAN + s"asking to rejoin channel ${guild.name}" + Console.RESET)
+          println(Console.CYAN + s"asking to rejoin voice channel in guild ${guild.name}" + Console.RESET)
           val musicChannel = guild.channels.find(_.name.get == args(0)).get
           conn.sendVoiceStateUpdate(guild.id, None, false, true)
           transition {
-            case (conn, GatewayEvents.VoiceStateUpdate(s)) =>
+            case (conn, GatewayEvents.VoiceStateUpdateEvent(s)) =>
               conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)
               setupVoiceChannel(guild)
           }
@@ -95,7 +93,7 @@ object AudioReceiveTest extends App {
   ))
 
   val receiverGw = Await.result(receiver.login(), Duration.Inf)
-  receiverGw.head.sendStatusUpdate(None, Status.PlayingGame("receing data"))
+//  receiverGw.head.sendStatusUpdate(None, Status.PlayingGame("receiving data"))
 
   var pendingBufferIterations = 0
   var dropped = 0

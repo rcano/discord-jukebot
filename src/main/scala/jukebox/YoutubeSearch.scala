@@ -1,6 +1,6 @@
 package jukebox
 
-import discord.AhcUtils._
+import headache.AhcUtils._
 import org.asynchttpclient.AsyncHttpClient
 import org.jsoup.Jsoup
 import scala.collection.JavaConverters._

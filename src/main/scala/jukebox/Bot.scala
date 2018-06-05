@@ -7,8 +7,7 @@ import com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.http.HttpAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
-import jukebox.discord._
-import org.json4s.native.JsonMethods.{pretty, render}
+import headache._, JsonUtils.renderJson
 import regex._
 import scala.collection.JavaConverters._
 import scala.concurrent._, duration._, ExecutionContext.Implicits._
@@ -39,14 +38,14 @@ class Bot(args: Array[String]) {
   val noData = new Array[Byte](0)
 
   object DiscordHandlerSM extends DiscordClient.DiscordListenerStateMachine[Any] {
-    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${pretty(render(data.jv))}")
+    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
     //    override def onUnexpectedVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received unsupported op $op: ${pretty(render(data.jv))}" + Console.RESET)
     override def onMessageBeingSent(conn, msg) = {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"Sending $msg")
     }
-    //    override def onGatewayOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
-    //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + pretty(render(data.jv)))
+        override def onGatewayOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
+        override def onVoiceOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
     override def undefHandler(evt) = evt match {
       case ConnectionError(conn, err) => println(s"$conn receive error: $err\n${err.getStackTrace.mkString("\n")}")
         //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
@@ -55,7 +54,7 @@ class Bot(args: Array[String]) {
     }
     def initState = awaitReady(None)
     def awaitReady(botData: Option[BotData]): Transition = transition {
-      case GatewayEvent(_, GatewayEvents.Ready(evt)) => awaitGuilds(botData, evt)
+      case GatewayEvent(_, GatewayEvents.ReadyEvent(evt)) => awaitGuilds(botData, evt)
     }
     def awaitGuilds(prevBotData: Option[BotData], ready: GatewayEvents.Ready, accGuilds: Seq[GatewayEvents.Guild] = Vector.empty): Transition = transition {
       case GatewayEvent(conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(g))) =>
@@ -78,28 +77,28 @@ class Bot(args: Array[String]) {
 
     private case object Shutdown
 
-    private def dispatchByChannelId(data: BotData, channelId: String, evt: Any)(notFoundCase: => Any) = {
+    private def dispatchByChannelId(data: BotData, channelId: Snowflake, evt: Any)(notFoundCase: => Any) = {
       data.guilds.find(_._1.channels.exists(_.id == channelId)).fold(notFoundCase: Unit)(e => e._2.applyIfDefined(evt))
     }
-    private def dispatchByGuildId(data: BotData, guildId: String, evt: Any)(notFoundCase: => Any) = {
+    private def dispatchByGuildId(data: BotData, guildId: Snowflake, evt: Any)(notFoundCase: => Any) = {
       data.guilds.find(_._1.id == guildId).fold(notFoundCase: Unit)(e => e._2.applyIfDefined(evt))
     }
 
     def messageHandling(data: BotData): Transition = transition {
-      case GatewayEvent(_, GatewayEvents.MessageCreate(GatewayEvents.MessageCreate(msg))) if msg.content startsWith data.me =>
+      case GatewayEvent(_, GatewayEvents.MessageCreateEvent(GatewayEvents.MessageCreate(msg))) if msg.content startsWith data.me =>
         dispatchByChannelId(data, msg.channelId, msg) {
           //see if the message starts with a guildId
           gr"""guild:(\d+) .+""".findFirstMatchIn(msg.content) match {
             case Some(matchh) =>
               println(matchh)
-              val guild = matchh.group(1)
+              val guild = Snowflake(matchh.group(1))
               dispatchByGuildId(data, guild, msg.copy(content = msg.content.replaceFirst(s"guild:$guild ", "")))(messageSender.reply(msg, s"Could not find guild $guild"))
             case _ => messageSender.reply(msg, s"What guild is this?")
           }
         }
         current
 
-      case GatewayEvent(_, GatewayEvents.VoiceStateUpdate(voiceState)) =>
+      case GatewayEvent(_, GatewayEvents.VoiceStateUpdateEvent(voiceState)) =>
         val dispatcher = voiceState.voiceState.guildId.map(g => dispatchByGuildId(data, g, _: Any) _) orElse
         voiceState.voiceState.channelId.map(c => dispatchByChannelId(data, c, _: Any) _)
         dispatcher.fold(println(s"No guild nor channelId in VoiceStateUpdate? $voiceState"))(
@@ -107,7 +106,7 @@ class Bot(args: Array[String]) {
         )
         current
 
-      case GatewayEvent(conn, GatewayEvents.VoiceServerUpdate(vsu)) =>
+      case GatewayEvent(conn, GatewayEvents.VoiceServerUpdateEvent(vsu)) =>
         dispatchByGuildId(data, vsu.guildId, vsu)(println(s"What guild is this VoiceServerUpdate from? $vsu"))
         current
 
@@ -544,10 +543,10 @@ class Bot(args: Array[String]) {
 
   val discordClient = new DiscordClient(clargs.discordToken, DiscordHandlerSM)
   val messageSender = new DiscordRateHonoringSender(discordClient) {
-    override def send(channel: discord.Channel, msg: String): Future[Unit] = {
+    override def send(channel: headache.Channel, msg: String): Future[Unit] = {
       super.send(channel, msg) andThen logErrors
     }
-    override def send(channelId: ChannelId, msg: String): Future[Unit] = {
+    override def send(channelId: Snowflake, msg: String): Future[Unit] = {
       super.send(channelId, msg) andThen logErrors
     }
     override def reply(to: Message, msg: String): Future[Unit] = {
