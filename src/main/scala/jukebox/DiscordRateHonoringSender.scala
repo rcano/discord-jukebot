@@ -3,7 +3,7 @@ package jukebox
 import java.util.concurrent.Executors
 import headache._
 import scala.annotation.tailrec
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.concurrent._, duration._
 
 /**
@@ -36,7 +36,7 @@ class DiscordRateHonoringSender(client: DiscordClient) {
               if (targetSize == 0) { //first message is too large, have to split it up
                 val (msg, promise) = msgs.remove(0)
                 val (targetMsg, rest) = msg.splitAt(MaxSize)
-                promise tryCompleteWith client.channels.createMessage(channelId, targetMsg).asInstanceOf[Future[Unit]]
+                promise completeWith client.channels.createMessage(channelId, targetMsg).asInstanceOf[Future[Unit]]
                 msgs.addFirst((author.map(u => mention(u) + ", ").getOrElse("") + rest, promise))
               } else {
                 val (finalMsg, promises) = (0 to lastIndexToSend).foldLeft((new StringBuilder, Vector.empty[Promise[Unit]])) {

@@ -2,7 +2,7 @@ package jukebox
 
 import com.codahale.metrics.{ConsoleReporter, MetricRegistry}
 import java.nio.ByteBuffer
-import headache._, JsonUtils.renderJson
+import headache._, JsonUtils._
 import scala.concurrent._, duration._
 
 object AudioReceiveTest extends App {
@@ -13,32 +13,32 @@ object AudioReceiveTest extends App {
     //    override def onGatewayData(data) = println(s"Gateway ${pretty(render(data.jv))}")
     //    override def onGatewayOp(conn, op, data) = println(s"Received $op: ${pretty(render(data.jv))} from ${java.util.Objects hashCode conn}")
     //    override def onVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received $op: ${pretty(render(data.jv))}" + Console.RESET)
-    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
-    override def onUnexpectedVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received unsupported op $op: ${renderJson(data.jv.get, true)}" + Console.RESET)
-    override def onMessageBeingSent(conn, msg) = {
+    override def onUnexpectedGatewayOp(conn: DiscordClient#GatewayConnection, op: Int, data: => DynJValueSelector) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
+    override def onUnexpectedVoiceOp(conn: DiscordClient#VoiceConnection, op: Int, data: => DynJValueSelector) = println(Console.MAGENTA + s"Received unsupported op $op: ${renderJson(data.jv.get, true)}" + Console.RESET)
+    override def onMessageBeingSent(conn: DiscordClient#Connection, msg: String) = {
       if (conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(Console.MAGENTA + s"Sending $msg" + Console.RESET)
       else
         println(s"Sending $msg")
     }
 
-    override def onReconnecting(conn, reason) = println(s"reconnecting $conn because of $reason")
-    override def onConnectionOpened(conn) = println(s"$conn connected")
-    override def onConnectionClosed(conn) = println(s"$conn closed")
-    override def onDisconnected(conn, code, reason) = println(s"$conn disconnected, code $code due to $reason")
-    override def onConnectionError(conn, ex) = ex.printStackTrace()
+    override def onReconnecting(conn: DiscordClient#Connection, reason: DiscordClient.ReconnectReason) = println(s"reconnecting $conn because of $reason")
+    override def onConnectionOpened(conn: DiscordClient#Connection) = println(s"$conn connected")
+    override def onConnectionClosed(conn: DiscordClient#Connection) = println(s"$conn closed")
+    override def onDisconnected(conn: DiscordClient#Connection, code: Int, reason: String) = println(s"$conn disconnected, code $code due to $reason")
+    override def onConnectionError(conn: DiscordClient#Connection, ex: Throwable) = ex.printStackTrace()
 
-    def onGatewayEvent(conn) = {
+    def onGatewayEvent(conn: DiscordClient#GatewayConnection) = {
       case evt =>
         stateMachine.orElse[(DiscordClient#GatewayConnection, GatewayEvents.GatewayEvent), Unit] {
-          case (_, evt) => println(evt.getClass + " happened")
+          case (_, evt) => println(s"${evt.getClass} happened")
         }.apply(conn -> evt)
     }
 
     val stateMachine = new StateMachine[(DiscordClient#GatewayConnection, GatewayEvents.GatewayEvent)] {
       def initState = ready
       def ready = transition {
-        case (conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(guild))) =>
+        case (conn, GatewayEvents.GuildCreateEvent(GatewayEvents.GuildCreate(guild))) =>
           println(Console.CYAN + s"asking to join voice channel ${args(0)} in guild ${guild.name}" + Console.RESET)
           val musicChannel = guild.channels.find(_.name.get == args(0)).get
           conn.sendVoiceStateUpdate(guild.id, Some(musicChannel.id), false, false)

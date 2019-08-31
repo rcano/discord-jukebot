@@ -6,11 +6,12 @@ import com.sedmelluq.discord.lavaplayer.player.event._
 import com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioSourceManager
 import com.sedmelluq.discord.lavaplayer.source.http.HttpAudioSourceManager
-import com.sedmelluq.discord.lavaplayer.track.AudioTrack
-import headache._, JsonUtils.renderJson
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException
+import com.sedmelluq.discord.lavaplayer.track.{AudioTrack, AudioPlaylist}
+import headache._, JsonUtils._
 import regex._
-import scala.collection.JavaConverters._
-import scala.concurrent._, duration._, ExecutionContext.Implicits._
+import scala.jdk.CollectionConverters._
+import scala.concurrent.{Channel => _, _}, duration._, ExecutionContext.Implicits._
 
 object Bot { def main(args: Array[String]): Unit = new Bot(args)}
 class Bot(args: Array[String]) {
@@ -34,20 +35,22 @@ class Bot(args: Array[String]) {
   audioPlayerManager.registerSourceManager(new LocalAudioSourceManager())
   audioPlayerManager.registerSourceManager(new HttpAudioSourceManager())
   audioPlayerManager.setPlayerCleanupThreshold(Long.MaxValue)
+  audioPlayerManager.setFrameBufferDuration(123)
 
   val noData = new Array[Byte](0)
 
   object DiscordHandlerSM extends DiscordClient.DiscordListenerStateMachine[Any] {
-    override def onUnexpectedGatewayOp(conn, op, data) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
+    override def onUnexpectedGatewayOp(conn: DiscordClient#GatewayConnection, op: Int, data: => DynJValueSelector) = println(s"Received unsupported op $op: ${renderJson(data.jv.get, true)}")
     //    override def onUnexpectedVoiceOp(conn, op, data) = println(Console.MAGENTA + s"Received unsupported op $op: ${pretty(render(data.jv))}" + Console.RESET)
-    override def onMessageBeingSent(conn, msg) = {
+    override def onMessageBeingSent(conn: DiscordClient#Connection, msg: String) = {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
-        println(s"Sending $msg")
+        println(s"$conn Sending $msg")
     }
-        override def onGatewayOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
-        override def onVoiceOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
-    override def undefHandler(evt) = evt match {
-      case ConnectionError(conn, err) => println(s"$conn receive error: $err\n${err.getStackTrace.mkString("\n")}")
+//    override def onGatewayOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
+//    override def onVoiceOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
+    override def undefHandler(evt: DiscordClient.DiscordListenerStateMachine.Event) = evt match {
+      case ConnectionError(conn, err) => println(s"$conn receive error: $err\n\t${err.getStackTrace.mkString("\n\t")}")
+      case Disconnected(conn, code, reason) => println(s"Conn $conn disconnected $code: $reason")
         //      case GatewayEvent(_, evt) => println(s"Event happened while I wasn't paying attention: ${evt.tpe}. I'm sitting at state $current")
         //      case evt => println(s"Event happened while I wasn't paying attention: ${evt.getClass}. I'm sitting at state $current")
       case _ =>
@@ -57,14 +60,14 @@ class Bot(args: Array[String]) {
       case GatewayEvent(_, GatewayEvents.ReadyEvent(evt)) => awaitGuilds(botData, evt)
     }
     def awaitGuilds(prevBotData: Option[BotData], ready: GatewayEvents.Ready, accGuilds: Seq[GatewayEvents.Guild] = Vector.empty): Transition = transition {
-      case GatewayEvent(conn, GatewayEvents.GuildCreate(GatewayEvents.GuildCreate(g))) =>
+      case GatewayEvent(conn, GatewayEvents.GuildCreateEvent(GatewayEvents.GuildCreate(g))) =>
         val guilds = accGuilds :+ g
         if (prevBotData.isDefined || guilds.size == ready.guilds.size) {
           val botData = prevBotData.fold {
-            val botData = BotData(conn, ready, guilds.map(g => g -> new GuildStateMachine(s"<@${ready.user.id}>", conn, g))(collection.breakOut))
+            val botData = BotData(conn, ready, guilds.view.map(g => g -> new GuildStateMachine(s"<@${ready.user.id}>", conn, g)).to(Map))
             println("just conected with " + botData)
             botData
-          }(_.withUpdatedConnectoin(conn))
+          }(_.withUpdatedConnection(conn))
 
           botData.guilds.valuesIterator.foreach(_.applyIfDefined(RejoinVoiceChannel))
           messageHandling(botData)
@@ -96,6 +99,10 @@ class Bot(args: Array[String]) {
             case _ => messageSender.reply(msg, s"What guild is this?")
           }
         }
+        current
+        
+      case GatewayEvent(_, GatewayEvents.PresenceUpdateEvent(evt)) =>
+        dispatchByGuildId(data, evt.guildId, evt)(())
         current
 
       case GatewayEvent(_, GatewayEvents.VoiceStateUpdateEvent(voiceState)) =>
@@ -136,10 +143,10 @@ class Bot(args: Array[String]) {
 
     def reconnect(data: BotData) = transition {
       case Reconnecting(conn: DiscordClient#GatewayConnection, reason) =>
-        println("reconnecting to gateway because of " + reason)
+        println("###reconnecting to gateway because of " + reason)
         transition {
           case GatewayEvent(conn, GatewayEvents.Resumed(())) =>
-            val newBotData = data.withUpdatedConnectoin(conn)
+            val newBotData = data.withUpdatedConnection(conn)
             newBotData.guilds.valuesIterator.foreach(_.applyIfDefined(RejoinVoiceChannel))
             messageHandling(newBotData)
         } orElse awaitReady(Some(data))
@@ -149,13 +156,12 @@ class Bot(args: Array[String]) {
   case class BotData(gateway: DiscordClient#GatewayConnection, info: GatewayEvents.Ready, guilds: Map[GatewayEvents.Guild, GuildStateMachine]) {
     val me = s"<@${info.user.id}>"
     override def toString = s"BotData($gateway)"
-    def withUpdatedConnectoin(conn: DiscordClient#GatewayConnection): BotData = {
+    def withUpdatedConnection(conn: DiscordClient#GatewayConnection): BotData = {
       guilds.foreach { case (g, gsm) => gsm(UpdateGatewayConnection(conn)) }
       copy(gateway = conn)
     }
   }
   private case object RejoinVoiceChannel
-  private case object LeaveVoiceChannel
   private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
   class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
     println(Console.RED + s"State machine initiated for $initialMe, conn $initialGateway, guild ${initialGuild.name}" + Console.RESET)
@@ -167,10 +173,12 @@ class Bot(args: Array[String]) {
       voiceConnection: Option[DiscordClient#VoiceConnection],
       subscribers: Seq[Subscription],
       paused: Boolean = false,
-      processing: Option[SyncVar[Unit]] = None
+      processing: Option[SyncVar[Unit]] = None,
+      tracking: Option[Tracking] = None
     )
     def initState = messageHandling(GuildData(initialMe, initialGateway, initialGuild, None, Seq.empty))
 
+    case class Tracking(user: Snowflake, channel: Snowflake)
     case class Subscription(msg: Message)
     case class UpdateStatus(status: String)
     case class SetPaused(paused: Boolean)
@@ -189,6 +197,21 @@ class Bot(args: Array[String]) {
         } catch {
           case e: Exception => e.printStackTrace()
         }
+        current
+        
+      case GatewayEvents.PresenceUpdate(_, user, _, _, Some(gameStatus), _) if 
+        gameStatus.tpe.map(GameStatus.Type.Listening.==).getOrElse(false) &&
+        guildData.tracking.map(_.user == user.id).getOrElse(false) =>
+        val query = (gameStatus.state.getOrElse(" ") + gameStatus.details.getOrElse(" ")).trim
+        if (query.nonEmpty) {
+          YoutubeSearch(discordClient.ahc, query).onComplete {
+            case scala.util.Success(seq) =>
+              val channel = guildData.guild.channels.find(_.id == guildData.tracking.get.channel).get
+              audioPlayerManager.loadItemOrdered(ap, seq.head._2, audioLoader(Left(channel)))
+            case scala.util.Failure(ex) => messageSender.send(guildData.tracking.get.channel, s"Something went wrong: $ex")
+          }
+        }
+        
         current
 
       case RejoinVoiceChannel =>
@@ -211,17 +234,27 @@ class Bot(args: Array[String]) {
     def setupVoiceChannel(guildData: GuildData, nextState: DiscordClient#VoiceConnection => Transition): Transition = {
       guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, None, false, true)
       guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, guildData.guild.channels.find(_.name.get equalsIgnoreCase clargs.channel).map(_.id), false, true)
-      transition {
+
+      def bogusTransition(p: PartialFunction[Any, Transition]): Transition = transition(p) orElse transition {
+        case UpdateGatewayConnection(conn) => 
+          println(s"   → received bogus update grateway connection while already setting up vc? guild ${initialGuild.name}")
+          current
+      }
+
+      bogusTransition {
         case ourVoiceState: GatewayEvents.VoiceStateUpdate if ourVoiceState.voiceState.channelId.isDefined =>
           println("voice state received, waiting for voice server udpate")
-          transition {
-            case vsu: GatewayEvents.VoiceServerUpdate =>
+          bogusTransition {
+            case vsu: GatewayEvents.VoiceServerUpdate if vsu.endpoint.isEmpty =>
+              println("waiting for endpoint for " + ourVoiceState.voiceState.channelId.get)
+              current
+            case vsu: GatewayEvents.VoiceServerUpdate if vsu.endpoint.isDefined =>
               println("establishing websocket to " + ourVoiceState.voiceState.channelId.get + " " + vsu.endpoint)
               guildData.gateway.client.connectToVoiceChannel(ourVoiceState, vsu, bytes => (), { () =>
                   val frame = ap.provide()
-                  if (frame == null) noData else frame.data
+                  if (frame == null) noData else frame.getData()
                 })
-              transition {
+              bogusTransition {
                 case conn: DiscordClient#VoiceConnection =>
                   println(s"resuming player to paused state ${guildData.paused}")
                   ap.setPaused(guildData.paused)
@@ -237,10 +270,10 @@ class Bot(args: Array[String]) {
 
     val ap = audioPlayerManager.createPlayer()
     object Playlist extends AudioEventListener {
-      private val _tracks = collection.mutable.LinkedHashMap[AudioTrack, Message]()
-      def tracks: collection.Map[AudioTrack, Message] = _tracks
-      def queue(track: AudioTrack, originalMessage: Message): Unit = {
-        _tracks += track -> originalMessage
+      private val _tracks = collection.mutable.LinkedHashMap[AudioTrack, Channel Either Message]()
+      def tracks: collection.Map[AudioTrack, Channel Either Message] = _tracks
+      def queue(track: AudioTrack, origin: Channel Either Message): Unit = {
+        _tracks += track -> origin
         if (ap.getPlayingTrack == null) ap.playTrack(track)
       }
       def remove(i: Int): AudioTrack = {
@@ -257,7 +290,7 @@ class Bot(args: Array[String]) {
       }
       def skip(): Unit = _tracks.headOption.fold(ap.playTrack(null))(t => ap.playTrack(t._1))
       def size = _tracks.size
-      def onEvent(evt) = scala.util.Try {
+      def onEvent(evt: AudioEvent) = scala.util.Try {
         evt match {
           case evt: TrackStartEvent =>
             _tracks -= evt.track
@@ -272,7 +305,8 @@ class Bot(args: Array[String]) {
             }
           case evt: TrackExceptionEvent =>
             val originalMessage = _tracks(evt.track)
-            messageSender.reply(originalMessage, "Failed processing track " + evt.track.getInfo.title + " due to " + evt.exception)
+            val msg = "Failed processing track " + evt.track.getInfo.title + " due to " + evt.exception
+            originalMessage.fold(c => messageSender.send(c, msg), m => messageSender.reply(m, msg))
             _tracks -= evt.track
             _tracks.headOption.fold(updatePlayingTrack())(t => ap.playTrack(t._1))
             evt.exception.printStackTrace()
@@ -379,33 +413,33 @@ class Bot(args: Array[String]) {
         case gr"""add $url(.+)""" => url.split("\\s+") foreach {
             case gr"$url(https?://.+|)" =>
               messageSender.reply(msg, "_adding <" + url + "> _")
-              audioPlayerManager.loadItemOrdered(ap, url, audioLoader(msg))
+              audioPlayerManager.loadItemOrdered(ap, url, audioLoader(Right(msg)))
         
             case gr"file://$path(.+)" if clargs.musicDirectory.isDefined =>
-              val location = File(java.net.URI.create(s"file://${clargs.musicDirectory.get}/$path"))
+              val location = new java.io.File(java.net.URI.create(s"file://${clargs.musicDirectory.get}/$path")).toScala
               if (location.exists) {
-                if (location.isRegularFile) audioPlayerManager.loadItemOrdered(ap, location.toString, audioLoader(msg))
-                else location.listRecursively.filter(_.isRegularFile) foreach (f => audioPlayerManager.loadItemOrdered(ap, f.toString, audioLoader(msg)))
+                if (location.isRegularFile) audioPlayerManager.loadItemOrdered(ap, location.toString, audioLoader(Right(msg)))
+                else location.listRecursively.filter(_.isRegularFile) foreach (f => audioPlayerManager.loadItemOrdered(ap, f.toString, audioLoader(Right(msg))))
               } else {
                 messageSender.reply(msg, s"Sorry, no file $location")
               }
-              audioPlayerManager.loadItemOrdered(ap, s"local:${clargs.musicDirectory.get}/$path", audioLoader(msg))
+              audioPlayerManager.loadItemOrdered(ap, s"local:${clargs.musicDirectory.get}/$path", audioLoader(Right(msg)))
             case other => messageSender.reply(msg, s"for now I only support youtube and web links. Sorry. [$other]")
           }
       })
-    def audioLoader(msg: Message) = new AudioLoadResultHandler {
-      override def trackLoaded(track) = {
-        Playlist.queue(track, msg)
-        messageSender.reply(msg, "*added " + track.getInfo.title + " to the queue.*")
+    def audioLoader(origin: Channel Either Message) = new AudioLoadResultHandler {
+      override def trackLoaded(track: AudioTrack) = {
+        Playlist.queue(track, origin)
+        origin.fold(c => messageSender.send(c, _: String), m => messageSender.reply(m, _: String))("*added " + track.getInfo.title + " to the queue.*")
       }
-      override def playlistLoaded(playlist) = {
-        playlist.getTracks.asScala foreach (Playlist.queue(_, msg))
+      override def playlistLoaded(playlist: AudioPlaylist) = {
+        playlist.getTracks.asScala foreach (Playlist.queue(_, origin))
         val num = playlist.getTracks.size
-        messageSender.reply(msg, s"_added $num songs to the queue._")
+        origin.fold(c => messageSender.send(c, _: String), m => messageSender.reply(m, _: String))(s"_added $num songs to the queue._")
       }
-      override def noMatches = messageSender.reply(msg, "Sorry, I couldn't find anything with that url.")
-      override def loadFailed(ex) = {
-        messageSender.reply(msg, "Sorry, loading fail :(. " + ex)
+      override def noMatches = origin.fold(c => messageSender.send(c, _: String), m => messageSender.reply(m, _: String))("Sorry, I couldn't find anything with that url.")
+      override def loadFailed(ex: FriendlyException) = {
+        origin.fold(c => messageSender.send(c, _: String), m => messageSender.reply(m, _: String))("Sorry, loading fail :(. " + ex)
         ex.printStackTrace()
       }
     }
@@ -516,7 +550,7 @@ class Bot(args: Array[String]) {
 
     commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")((gd, msg) => {
         case gr"subscribe$who(?: (.*))?" =>
-          who.fold(Option(msg.author))(who => gd.guild.members.find(_.user.id == who).map(_.user)) match {
+          who.fold(Option(msg.author))(who => gd.guild.members.find(_.user.id == who.toLong).map(_.user)) match {
             case Some(user) => 
               messageSender.reply(msg, "subscribed")
               if (!gd.subscribers.exists(_.msg.author.id == user.id))
@@ -530,6 +564,24 @@ class Bot(args: Array[String]) {
           messageSender.reply(msg, "unsubscribed")
           updateState(gd.copy(subscribers = gd.subscribers.filterNot(_.msg.author.id == msg.author.id)))
       })
+    
+    commands += Command("track <userId>|stop", "I'll play on the audio channel whatever a given user is listening to in spotify.")((gd, msg) => {
+        case gr"""track $user(\d+)""" =>
+          val targetId = Snowflake(user)
+          gd.guild.members.find(_.user.id == targetId) match {
+            case Some(member) =>
+              val userName = member.nick.getOrElse(member.user.userName)
+              updateState(gd.copy(tracking = Some(Tracking(targetId, msg.channelId))))
+              messageSender.reply(msg, s"tracking $userName")
+              
+            case None => messageSender.reply(msg, s"no member with id $user found")
+          }
+        
+        case "track stop" => 
+          updateState(gd.copy(tracking = None))
+          messageSender.reply(msg, s"I'm no longer tracking anyone.")
+      })
+    
 
     commands += Command("help", "Prints this message")((_, msg) => {
         case "help" =>
@@ -541,7 +593,7 @@ class Bot(args: Array[String]) {
 
   }
 
-  val discordClient = new DiscordClient(clargs.discordToken, DiscordHandlerSM)
+  val discordClient = new DiscordClient("Bot " + clargs.discordToken, DiscordHandlerSM)
   val messageSender = new DiscordRateHonoringSender(discordClient) {
     override def send(channel: headache.Channel, msg: String): Future[Unit] = {
       super.send(channel, msg) andThen logErrors

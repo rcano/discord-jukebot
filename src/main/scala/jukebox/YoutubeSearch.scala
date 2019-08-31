@@ -3,11 +3,11 @@ package jukebox
 import headache.AhcUtils._
 import org.asynchttpclient.AsyncHttpClient
 import org.jsoup.Jsoup
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.concurrent.Future
 
 object YoutubeSearch {
-  def apply(ahc: AsyncHttpClient, query: String): Future[Seq[(String, String)]] = {
+  def apply(ahc: AsyncHttpClient, query: String): Future[collection.Seq[(String, String)]] = {
     request(ahc.prepareGet("https://www.youtube.com/results").addQueryParam("search_query", query)) { r =>
       if ((200 until 300) contains r.getStatusCode) {
         val html = Jsoup.parse(r.getResponseBody())

@@ -5,10 +5,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 import headache.JsonUtils._
-import headache.JsonCodecs._
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsValue, Json, Reads}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.concurrent._
 import scala.sys.process._
 import scala.util.Try
@@ -19,6 +18,8 @@ import scala.util.Try
  */
 object YoutubeProvider {
 
+  private implicit def optionRead[T: Reads] = Reads.optionWithNull[T]
+  
   /**
    * Fetch information for the given video or playlist.
    * @param url Video or playlist
@@ -84,7 +85,7 @@ object YoutubeProvider {
   private def runCommand(seq: Seq[String]) = {
     println("running command: " + seq)
     var errorLog = Seq.empty[String]
-    seq.lineStream_!(ProcessLogger(l => errorLog :+= l)).force -> errorLog
+    seq.lazyLines_!(ProcessLogger(l => errorLog :+= l)).force -> errorLog
   }
 
   private def extractSongMetadata(jv: JsValue) = {
