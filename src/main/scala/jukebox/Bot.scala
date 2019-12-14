@@ -46,7 +46,7 @@ class Bot(args: Array[String]) {
       if (!conn.isInstanceOf[DiscordClient#VoiceConnection])
         println(s"$conn Sending $msg")
     }
-//    override def onGatewayOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
+//    override def onGatewayOp(conn: DiscordClient#GatewayConnection, op: headache.GatewayOp, data: => DynJValueSelector) = println(s"received: $op " + renderJson(data.jv.get, true))
 //    override def onVoiceOp(conn, op, data) = println(s"received: $op " + renderJson(data.jv.get, true))
     override def undefHandler(evt: DiscordClient.DiscordListenerStateMachine.Event) = evt match {
       case ConnectionError(conn, err) => println(s"$conn receive error: $err\n\t${err.getStackTrace.mkString("\n\t")}")
@@ -64,7 +64,7 @@ class Bot(args: Array[String]) {
         val guilds = accGuilds :+ g
         if (prevBotData.isDefined || guilds.size == ready.guilds.size) {
           val botData = prevBotData.fold {
-            val botData = BotData(conn, ready, guilds.view.map(g => g -> new GuildStateMachine(s"<@${ready.user.id}>", conn, g)).to(Map))
+            val botData = BotData(conn, ready, guilds.view.map(g => g -> new GuildStateMachine(ready.user.id.snowflakeString, conn, g)).to(Map))
             println("just conected with " + botData)
             botData
           }(_.withUpdatedConnection(conn))
@@ -88,7 +88,7 @@ class Bot(args: Array[String]) {
     }
 
     def messageHandling(data: BotData): Transition = transition {
-      case GatewayEvent(_, GatewayEvents.MessageCreateEvent(GatewayEvents.MessageCreate(msg))) if msg.content startsWith data.me =>
+      case GatewayEvent(_, GatewayEvents.MessageCreateEvent(GatewayEvents.MessageCreate(msg))) =>
         dispatchByChannelId(data, msg.channelId, msg) {
           //see if the message starts with a guildId
           gr"""guild:(\d+) .+""".findFirstMatchIn(msg.content) match {
@@ -154,20 +154,24 @@ class Bot(args: Array[String]) {
   }
 
   case class BotData(gateway: DiscordClient#GatewayConnection, info: GatewayEvents.Ready, guilds: Map[GatewayEvents.Guild, GuildStateMachine]) {
-    val me = s"<@${info.user.id}>"
     override def toString = s"BotData($gateway)"
     def withUpdatedConnection(conn: DiscordClient#GatewayConnection): BotData = {
       guilds.foreach { case (g, gsm) => gsm(UpdateGatewayConnection(conn)) }
       copy(gateway = conn)
     }
+
   }
   private case object RejoinVoiceChannel
   private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
   class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
     println(Console.RED + s"State machine initiated for $initialMe, conn $initialGateway, guild ${initialGuild.name}" + Console.RESET)
 
+    object & {
+      def unapply[T](t: T) = Some(t -> t)
+    }
+
     case class GuildData(
-      me: String,
+      myId: String,
       gateway: DiscordClient#GatewayConnection,
       guild: GatewayEvents.Guild,
       voiceConnection: Option[DiscordClient#VoiceConnection],
@@ -175,7 +179,12 @@ class Bot(args: Array[String]) {
       paused: Boolean = false,
       processing: Option[SyncVar[Unit]] = None,
       tracking: Option[Tracking] = None
-    )
+    ) {
+      object MePrefx {
+        val prefix = s"<@!?${myId}>".r
+        def unapply(s: Message): Option[String] = prefix.findPrefixOf(s.content)
+      }
+    }
     def initState = messageHandling(GuildData(initialMe, initialGateway, initialGuild, None, Seq.empty))
 
     case class Tracking(user: Snowflake, channel: Snowflake)
@@ -183,9 +192,9 @@ class Bot(args: Array[String]) {
     case class UpdateStatus(status: String)
     case class SetPaused(paused: Boolean)
     def messageHandling(guildData: GuildData): Transition = transition {
-      case msg: Message =>
+      case (msg: Message) & guildData.MePrefx(pref) =>
         try {
-          val cmd = msg.content.stripPrefix(guildData.me).replaceFirst("^[,:]?\\s+", "")
+          val cmd = msg.content.stripPrefix(pref).replaceFirst("^[,:]?\\s+", "")
           commands.find(_.action(guildData, msg).isDefinedAt(cmd)) match {
             case Some(command) =>
               if (!clargs.dictatorMode || clargs.dictatorAssociates.contains(msg.author.id))
