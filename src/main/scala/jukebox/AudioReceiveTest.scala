@@ -92,7 +92,7 @@ object AudioReceiveTest extends App {
     voiceConsumer = f => jitterBuffer.synchronized(jitterBuffer.push(f))
   ))
 
-  val receiverGw = Await.result(receiver.login(), Duration.Inf)
+  val receiverGw = Await.result(receiver.login(desiredEvents = Set(GatewayEvents.Intent.Guilds, GatewayEvents.Intent.GuildVoiceStates)), Duration.Inf)
 //  receiverGw.head.sendStatusUpdate(None, Status.PlayingGame("receiving data"))
 
   var pendingBufferIterations = 0

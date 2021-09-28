@@ -12,6 +12,7 @@ import headache._, JsonUtils._
 import regex._
 import scala.jdk.CollectionConverters._
 import scala.concurrent.{Channel => _, _}, duration._, ExecutionContext.Implicits._
+import scala.util.control.NonFatal
 
 object Bot { def main(args: Array[String]): Unit = new Bot(args)}
 class Bot(args: Array[String]) {
@@ -105,6 +106,59 @@ class Bot(args: Array[String]) {
         dispatchByGuildId(data, evt.guildId, evt)(())
         current
 
+
+      ///////////////////////////////////////////////////////////
+      // Guild and channel updates
+      ///////////////////////////////////////////////////////////
+
+      case GatewayEvent(_, GatewayEvents.GuildCreateEvent(evt)) =>
+        //perform this check, because under server outages we'll receive this event again once the guild becomes available again
+        if (!data.guilds.keys.exists(_.id == evt.guild.id)) {
+          println(s"We were added to a new guild ${evt.guild}")
+          messageHandling(data.copy(guilds =
+            data.guilds.updated(evt.guild, new GuildStateMachine(data.info.user.id.snowflakeString, data.gateway, evt.guild))))
+        } else current
+
+      case GatewayEvent(_, GatewayEvents.GuildDeleteEvent(evt)) =>
+        //under unavailability we do nothing, we only care when we were removed
+        if (!evt.guild.unavailable) {
+          println(s"We were removed from the guild ${evt.guild}")
+          data.guilds.keys.find(_.id == evt.guild.id) match {
+            case Some(guild) =>
+              data.guilds(guild).shutdown()
+              messageHandling(data.copy(guilds = data.guilds - guild))
+
+            case _ => current
+          }
+        } else current
+
+      case GatewayEvent(_, GatewayEvents.ChannelCreateEvent(evt)) =>
+        data.guilds.keys.find(g => evt.channel.guildId.exists(_ == g.id)) match {
+          case Some(guild) =>
+            val guildSm = data.guilds(guild)
+            val updatedGuild = guild.copy(channels = guild.channels :+ evt.channel)
+            println(s"Adding channel ${evt.channel} to guild ${guild.name}")
+            messageHandling(data.copy(guilds = (data.guilds - guild /*remove old value first*/).updated(updatedGuild, guildSm)))
+          case _ =>
+            println(s"Received event about channel creation but we couldn't identify the guild? $evt")
+            current
+        }
+
+      case GatewayEvent(_, GatewayEvents.ChannelDeleteEvent(evt)) =>
+        data.guilds.keys.find(g => evt.channel.guildId.exists(_ == g.id)) match {
+          case Some(guild) =>
+            val guildSm = data.guilds(guild)
+            val updatedGuild = guild.copy(channels = guild.channels.filterNot(_.id == evt.channel.id))
+            println(s"Removed channel ${evt.channel} from guild ${guild.name}")
+            messageHandling(data.copy(guilds = (data.guilds - guild /*remove old value first*/).updated(updatedGuild, guildSm)))
+          case _ =>
+            println(s"Received event about channel creation but we couldn't identify the guild? $evt")
+            current
+        }
+
+      ///////////////////////////////////////////////////////////
+      // Voice connection stuff
+      ///////////////////////////////////////////////////////////
       case GatewayEvent(_, GatewayEvents.VoiceStateUpdateEvent(voiceState)) =>
         val dispatcher = voiceState.voiceState.guildId.map(g => dispatchByGuildId(data, g, _: Any) _) orElse
         voiceState.voiceState.channelId.map(c => dispatchByChannelId(data, c, _: Any) _)
@@ -120,6 +174,11 @@ class Bot(args: Array[String]) {
       case ConnectionOpened(conn: DiscordClient#VoiceConnection) =>
         dispatchByGuildId(data, conn.guildId, conn)(println(s"What guild is this Voice connection from? $conn"))
         current
+
+
+      ///////////////////////////////////////////////////////////
+      // Reconnection and shutdown
+      ///////////////////////////////////////////////////////////
 
       case ConnectionError(conn: DiscordClient#VoiceConnection, err) =>
         println(s"Exception closed Voice conn $conn: $err\n" + err.getStackTrace.mkString("\n"))
@@ -163,6 +222,7 @@ class Bot(args: Array[String]) {
   }
   private case object RejoinVoiceChannel
   private case class UpdateGatewayConnection(gateway: DiscordClient#GatewayConnection)
+  private case object Dispose
   class GuildStateMachine(initialMe: String, initialGateway: DiscordClient#GatewayConnection, initialGuild: GatewayEvents.Guild) extends StateMachine[Any] {
     println(Console.RED + s"State machine initiated for $initialMe, conn $initialGateway, guild ${initialGuild.name}" + Console.RESET)
 
@@ -189,6 +249,8 @@ class Bot(args: Array[String]) {
 
     case class Tracking(user: Snowflake, channel: Snowflake)
     case class Subscription(msg: Message)
+
+    //control events
     case class UpdateStatus(status: String)
     case class SetPaused(paused: Boolean)
     def messageHandling(guildData: GuildData): Transition = transition {
@@ -209,8 +271,7 @@ class Bot(args: Array[String]) {
         current
         
       case GatewayEvents.PresenceUpdate(_, user, _, _, Some(gameStatus), _) if 
-        gameStatus.tpe.map(GameStatus.Type.Listening.==).getOrElse(false) &&
-        guildData.tracking.map(_.user == user.id).getOrElse(false) =>
+        gameStatus.tpe.exists(Status.Listening.==) && guildData.tracking.exists(_.user == user.id) =>
         val query = (gameStatus.state.getOrElse(" ") + gameStatus.details.getOrElse(" ")).trim
         if (query.nonEmpty) {
           YoutubeSearch(discordClient.ahc, query).onComplete {
@@ -238,22 +299,24 @@ class Bot(args: Array[String]) {
       case UpdateStatus(status) =>
         guildData.subscribers.foreach(s => messageSender.reply(s.msg, status))
         current
+
+      case Dispose =>
+        guildData.voiceConnection foreach (_.close())
+        try ap.destroy()
+        catch { case NonFatal(e) => e.printStackTrace() }
+        done
     }
 
     def setupVoiceChannel(guildData: GuildData, nextState: DiscordClient#VoiceConnection => Transition): Transition = {
       guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, None, false, true)
       guildData.gateway.sendVoiceStateUpdate(guildData.guild.id, guildData.guild.channels.find(_.name.get equalsIgnoreCase clargs.channel).map(_.id), false, true)
 
-      def bogusTransition(p: PartialFunction[Any, Transition]): Transition = transition(p) orElse transition {
-        case UpdateGatewayConnection(conn) => 
-          println(s"   → received bogus update grateway connection while already setting up vc? guild ${initialGuild.name}")
-          current
-      }
+      def handlingGatewayReconnection(p: PartialFunction[Any, Transition]): Transition = transition(p) orElse messageHandling(guildData)
 
-      bogusTransition {
+      handlingGatewayReconnection {
         case ourVoiceState: GatewayEvents.VoiceStateUpdate if ourVoiceState.voiceState.channelId.isDefined =>
           println("voice state received, waiting for voice server udpate")
-          bogusTransition {
+          handlingGatewayReconnection {
             case vsu: GatewayEvents.VoiceServerUpdate if vsu.endpoint.isEmpty =>
               println("waiting for endpoint for " + ourVoiceState.voiceState.channelId.get)
               current
@@ -263,7 +326,7 @@ class Bot(args: Array[String]) {
                   val frame = ap.provide()
                   if (frame == null) noData else frame.getData()
                 })
-              bogusTransition {
+              handlingGatewayReconnection {
                 case conn: DiscordClient#VoiceConnection =>
                   println(s"resuming player to paused state ${guildData.paused}")
                   ap.setPaused(guildData.paused)
@@ -276,6 +339,7 @@ class Bot(args: Array[String]) {
     def rejoinMusicChannel(): Unit = applyIfDefined(RejoinVoiceChannel)
     def updateStatus(status: String): Unit = applyIfDefined(UpdateStatus(status))
     def updateState(gd: GuildData) = apply(gd)
+    def shutdown(): Unit = apply(Dispose)
 
     val ap = audioPlayerManager.createPlayer()
     object Playlist extends AudioEventListener {
@@ -559,7 +623,7 @@ class Bot(args: Array[String]) {
 
     commands += Command("subscribe", "(bot only) Subscribes to status updates via DM.")((gd, msg) => {
         case gr"subscribe$who(?: (.*))?" =>
-          who.fold(Option(msg.author))(who => gd.guild.members.find(_.user.id == who.toLong).map(_.user)) match {
+          who.fold(Option(msg.author))(who => gd.guild.members.find(_.user.exists(_.id == who.toLong)).flatMap(_.user)) match {
             case Some(user) => 
               messageSender.reply(msg, "subscribed")
               if (!gd.subscribers.exists(_.msg.author.id == user.id))
@@ -577,9 +641,9 @@ class Bot(args: Array[String]) {
     commands += Command("track <userId>|stop", "I'll play on the audio channel whatever a given user is listening to in spotify.")((gd, msg) => {
         case gr"""track $user(\d+)""" =>
           val targetId = Snowflake(user)
-          gd.guild.members.find(_.user.id == targetId) match {
+          gd.guild.members.find(_.user.exists(_.id == targetId)) match {
             case Some(member) =>
-              val userName = member.nick.getOrElse(member.user.userName)
+              val userName = member.nick.getOrElse(member.user.get.userName)
               updateState(gd.copy(tracking = Some(Tracking(targetId, msg.channelId))))
               messageSender.reply(msg, s"tracking $userName")
               
@@ -624,5 +688,10 @@ class Bot(args: Array[String]) {
     f"${hours}${(seconds % 3600) / 60}%02d:${seconds % 60}%02d"
   }
 
-  discordClient.login()
+  discordClient.login(desiredEvents = Set(
+    GatewayEvents.Intent.Guilds,
+    GatewayEvents.Intent.GuildVoiceStates,
+    GatewayEvents.Intent.GuildMessages,
+    GatewayEvents.Intent.GuildPresences,
+    ))
 }
